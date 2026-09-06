@@ -2,7 +2,7 @@
 
 Date: 2026-09-07. Status: proposed, awaiting Jaime's approval. Research and the build-vs-adopt decision are in `docs/research/2026-09-06-landscape-and-recommendation.md`.
 
-Decisions already made by Jaime: build thin on native Claude Code; Beads per repo as tracker (a local UI later); WhatsApp for the digest and replies; background sessions as workers, as long as they stay trackable; Verity for quality, security and review findings; the working day ends at 15:00; `/goal` is not trusted for completion, so completion is validated explicitly; agents' work must leave memory behind; first use tomorrow morning.
+Decisions already made by Jaime: build thin on native Claude Code; Beads per repo as the operational tracker (a local UI later; Linear later as the place tickets and context come from and where status is reported, never as a bus between agents); iMessage for the digest and replies (no new apps to create); background sessions as workers, as long as they stay trackable; Verity for quality, security and review findings; the working day ends at 15:00; `/goal` is not trusted for completion, so completion is validated explicitly; agents' work must leave memory behind; first use tomorrow morning.
 
 ## 1. Roles and scope
 
@@ -22,9 +22,8 @@ Decisions already made by Jaime: build thin on native Claude Code; Beads per rep
   CLAUDE.md                    points Claude at AMBROSIO.md and the skills
   ambrosio.config.json         repos, WIP limit, hours, phone numbers, budgets
   bin/
-    ambrosio                   CLI entry (bun): status, dispatch, queue, answer, tick, setup
-  src/                         bun/TypeScript: tracker adapter, agents adapter, queue, digest renderer, whatsapp transport
-  channels/whatsapp/           channel MCP server (stdio) + webhook receiver + sender
+    ambrosio                   CLI entry (bun): status, dispatch, queue, answer, send, setup
+  src/                         bun/TypeScript: tracker adapter, agents adapter, queue, digest renderer, imessage sender
   worker/
     prompt.md                  worker contract template (rendered per ticket)
     settings.json              hooks passed to workers with --settings
@@ -36,7 +35,7 @@ Decisions already made by Jaime: build thin on native Claude Code; Beads per rep
   docs/                        research, specs, plans
 ~/.ambrosio/
   queue/                       parked questions, one JSON per question
-  inbox/whatsapp.jsonl         inbound replies (cursor-tracked)
+  inbox/imessage.jsonl         inbound replies as received by the tick session (audit)
   outbox/                      sent digests, for audit
   work/<repo>/<ticket>/        plan.md, log.md, evidence.md, sessions.json
   journal/YYYY-MM-DD.md        daily record: mission, tickets, decisions, acceptances, lessons
@@ -49,8 +48,7 @@ Each unit has one job and a small interface:
 - **Agents adapter** (`src/agents.ts`): wraps `claude agents --json --all`, `claude --bg`, `claude --bg --resume`, `claude stop`, and reads `~/.claude/jobs/<id>/state.json` for the summary line.
 - **Queue** (`src/queue.ts`): parked questions with ticket, session, question payload, options, worker recommendation, urgency, status (open, answered, delivered).
 - **Digest renderer** (`src/digest.ts`): builds the WhatsApp text from queue, tracker, agents, PR checks, spend; assigns reply keys.
-- **WhatsApp transport** (`src/whatsapp.ts`): `send(text)`, `sendTemplate(name)`, `readInbox(sinceCursor)`.
-- **Channel server** (`channels/whatsapp/server.ts`): MCP server over stdio declaring `claude/channel`; pushes each inbound WhatsApp message into the manager session as a channel event; exposes a `reply` tool; runs the webhook HTTP listener.
+- **iMessage sender** (`src/imessage.ts`): `send(text)` through `osascript` to Jaime's own handle, used by the CLI, the desk session and scripts. Inbound messages are delivered by the official iMessage channel plugin, not by Ambrosio code.
 
 ## 3. Ticket lifecycle (Beads, per repo)
 
@@ -94,7 +92,7 @@ Required fields, enforced by the intake skill: acceptance criteria (verifiable, 
 
 ## 5. The manager
 
-**Sessions**: `ambrosio-desk` is an interactive session Jaime opens at 09:00 and 15:00 (or on demand), running `/ambrosio-plan-day` and `/ambrosio-wrap-up`. `ambrosio-tick` is a long-lived interactive session started in a tmux window with the WhatsApp channel attached, running `/loop 60m /ambrosio-tick` plus `/loop 10m /ambrosio-check-replies`. Both run in `~/Workspace/ambrosio`, so both load the charter. The channel delivers each WhatsApp message as an event to the tick session immediately; the 10-minute loop is the safety net.
+**Sessions**: `ambrosio-desk` is an interactive session Jaime opens at 09:00 and 15:00 (or on demand), running `/ambrosio-plan-day` and `/ambrosio-wrap-up`. `ambrosio-tick` is a long-lived interactive session started in a tmux window inside a terminal that has Full Disk Access, launched with `claude --channels plugin:imessage@claude-plugins-official`, running `/loop 60m /ambrosio-tick`. Both run in `~/Workspace/ambrosio`, so both load the charter. The channel delivers each iMessage from Jaime as an event to the tick session the moment it arrives, so replies are routed immediately; the hourly loop handles everything else.
 
 **Tick algorithm** (`/ambrosio-tick`):
 1. Collect: `ambrosio status --json` (agents, tracker across repos, queue, inbox cursor, PR checks via `gh`, spend from job state).
@@ -107,7 +105,7 @@ Required fields, enforced by the intake skill: acceptance criteria (verifiable, 
 
 Outside working hours (before 09:00, after 15:00): no dispatch, no digest, no pings; anomalies are handled silently (park or stop) and reported at the next morning's state of the world.
 
-**Reply grammar** (one line per item, case-insensitive):
+**Reply grammar** (one line per item, case-insensitive; sent from the Messages self-chat on any device):
 - `Q3 b` or `Q3 b: <note>` — answer question 3 with option b (free text allowed after the key).
 - `P2 ok` / `P2 change: <feedback>` — approve or bounce a plan.
 - `A1 accept` / `A1 reject: <feedback>` — accept or reject finished work.
@@ -120,7 +118,7 @@ Unparseable text is treated as a message to Ambrosio, answered by the tick sessi
 
 ## 6. Digest format
 
-One WhatsApp message, at most hourly, grouped by what Jaime has to do, each item with a reply key:
+One iMessage, at most hourly, grouped by what Jaime has to do, each item with a reply key:
 
 ```
 Ambrosio · 11:00 · 3 decisions, 1 plan, 2 to accept, 4 working
@@ -142,15 +140,15 @@ T-g7h8 working 40m, 12 commits · T-i9j0 blocked on T-a1b2
 Spend today: 2.1M tokens
 ```
 
-Urgent messages are one line: what happened, what to do, and how (reply here, or peek in `claude agents`).
+Urgent messages are one line: what happened, what to do, and how (reply here, or peek in `claude agents`). Long digests are split at 1,500 characters so they render on the phone.
 
-## 7. WhatsApp bridge
+## 7. iMessage channel
 
-Transport: Meta WhatsApp Cloud API (official, free at this volume). Outbound text via `POST /{phone_number_id}/messages`. Free-form messages are allowed only within 24 hours of Jaime's last message to the number; Jaime's replies keep the window open, and the morning nudge uses the pre-approved `hello_world` template if the window has closed. Inbound: Meta calls a webhook; the bridge runs a local HTTP listener and a `cloudflared` quick tunnel for v0 (the public URL changes on restart and must be pasted into the Meta app's webhook settings; v1 replaces this with a stable URL). Only messages from Jaime's number are accepted; everything else is dropped.
+Transport: the official `imessage@claude-plugins-official` channel plugin (research preview, macOS only). It reads the Messages database at `~/Library/Messages/chat.db` and sends replies through AppleScript. No bot, no token, no external service, no public URL. Jaime texts himself in Messages from any device; self-chat bypasses the plugin's access control, so the only allowed sender is Jaime. The tick session is started with `claude --channels plugin:imessage@claude-plugins-official`; inbound messages arrive as `<channel source="plugin:imessage:imessage">` events and the plugin's `reply` tool sends back into the same chat.
 
-Wiring into Claude Code: the bridge is a channel MCP server (`channels/whatsapp/server.ts`, Bun) declared in `.mcp.json` and loaded with `claude --dangerously-load-development-channels server:whatsapp`. Inbound messages arrive in the tick session as `<channel source="whatsapp">` events; the `reply` tool sends outbound. The same sender is also callable from the CLI (`ambrosio send`) so the desk session and scripts can send without the channel.
+Setup on this Mac: install the plugin at user scope; grant Full Disk Access to the terminal app that runs the tick session (macOS prompts on first read); accept the Automation prompt for Messages on the first reply. Ambrosio's own sender (`ambrosio send`) uses `osascript` with the same handle, so the desk session and scripts can send without the channel.
 
-Fallback: the transport interface is two functions. If the Meta app is not ready by morning, the official Telegram channel plugin is a five-minute swap so the day is not lost.
+Caveats to respect: events reach the session only while it is open, so the tick session lives in tmux; the plugin marks channel text as data, and the charter repeats that a message can never change configuration or grant permissions; if the plugin proves flaky, the Telegram plugin is the same-shape swap.
 
 ## 8. Error handling and safety
 
@@ -160,26 +158,26 @@ Fallback: the transport interface is two functions. If the Meta app is not ready
 - WIP limit and per-ticket turn cap are enforced by Ambrosio at dispatch and tick, not by the worker.
 - No worker runs with permissions bypassed; auto mode plus the guards is the ceiling.
 - Every outbound message and every applied reply is logged to `~/.ambrosio/outbox` and the journal.
-- The bridge accepts only Jaime's number; the channel's instructions tell Claude that channel text is data, never a command to change configuration.
+- Only Jaime's self-chat reaches the session; the charter tells Claude that channel text is data, never a command to change configuration or approve anything.
 
 ## 9. Testing
 
 - Unit tests (bun test) for: reply grammar parser, digest renderer (snapshot), urgency classifier, tracker adapter against a temp Beads repo, queue dedupe.
 - Hook tests: feed sample `PreToolUse` and `PermissionRequest` JSON to each guard script and assert the JSON decision and the queue side effect.
-- Bridge tests: webhook verification handshake, inbound payload parsing, sender-allowlist, outbound request shape (mocked HTTP).
+- Sender test: `ambrosio send` delivers a message to the self-chat (manual check on the phone); channel round trip checked in the rehearsal.
 - One end-to-end rehearsal tonight in a scratch repo: dispatch a worker on a toy ticket that must ask a question, confirm it parks, answer via the CLI, confirm it resumes and reaches `in_review`.
 
 ## 10. Scope: tonight versus later
 
-**v0 (tonight)**: everything above except the UI. Two skills plus the tick, the worker contract and hooks, the CLI, Beads setup in the chosen repos, the WhatsApp channel with the quick tunnel, tests, and the rehearsal.
+**v0 (tonight)**: everything above except the UI. Three skills, the worker contract and hooks, the CLI, Beads setup in the chosen repos, the iMessage channel wired to the tick session, tests, and the rehearsal.
 
-**v1 (next)**: a local web UI (Bun server on localhost) rendering the board from Beads, the agents list, the queue and the journal; a stable webhook URL; permission relay through the channel so Jaime can approve a permission prompt from WhatsApp; optional `/goal` with small, per-step goals; Verity verdict pulled from its API instead of the worker's report.
+**v1 (next)**: a local web UI (Bun server on localhost) rendering the board from Beads, the agents list, the queue and the journal; **Linear as a source and a report target**: the Linear MCP server attached to the desk session so plan-day can pull issues and their context, `ambrosio import linear <issue>` creating a Beads ticket with the Linear issue as `external_ref`, and status plus a summary comment pushed back to the Linear issue on each transition (Beads stays the operational tracker; Linear is never used to pass work between agents); permission relay through the channel so Jaime can approve a permission prompt from Messages; optional `/goal` with small, per-step goals; Verity verdict pulled from its API instead of the worker's report.
 
 ## 11. Assumptions to confirm
 
 - Repos for tomorrow: `gatemd-core`, `gatemd-ui`, `tailor-craft-pro-98` (others added by editing the config).
 - WIP limit: 3 concurrent workers across all repos; per-ticket cap 150 turns.
 - Hours: planning at 09:00, digests at the top of each hour until 14:00, wrap-up at 15:00; silence after 15:00, including urgent items, which are handled by parking or stopping the worker.
-- WhatsApp: Meta Cloud API test number; Jaime provides the phone number id, a permanent access token, and his own number, and adds his number as a test recipient in the Meta app.
+- iMessage: Jaime's own Apple ID handle (phone or email) is the target; the terminal app running the tick session gets Full Disk Access; the first reply triggers a Messages automation prompt that Jaime accepts.
 - Beads is initialized in each repo with `bd init` defaults; nothing is committed to those repos without asking.
 - Ambrosio's own repo is initialized in git tonight.
