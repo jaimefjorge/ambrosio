@@ -47,7 +47,7 @@ Each unit has one job and a small interface:
 - **Tracker adapter** (`src/tracker.ts`): `list(repo, states)`, `get(id)`, `create`, `transition(id, from, to)`, `comment`, `setMeta`. Implemented on `bd … --json`; swappable for flat files.
 - **Agents adapter** (`src/agents.ts`): wraps `claude agents --json --all`, `claude --bg`, `claude --bg --resume`, `claude stop`, and reads `~/.claude/jobs/<id>/state.json` for the summary line.
 - **Queue** (`src/queue.ts`): parked questions with ticket, session, question payload, options, worker recommendation, urgency, status (open, answered, delivered).
-- **Digest renderer** (`src/digest.ts`): builds the WhatsApp text from queue, tracker, agents, PR checks, spend; assigns reply keys.
+- **Digest renderer** (`src/digest.ts`): builds the iMessage text from queue, tracker, agents, PR checks, spend; assigns reply keys.
 - **iMessage sender** (`src/imessage.ts`): `send(text)` through `osascript` to Jaime's own handle, used by the CLI, the desk session and scripts. Inbound messages are delivered by the official iMessage channel plugin, not by Ambrosio code.
 
 ## 3. Ticket lifecycle (Beads, per repo)
@@ -98,7 +98,7 @@ Required fields, enforced by the intake skill: acceptance criteria (verifiable, 
 1. Collect: `ambrosio status --json` (agents, tracker across repos, queue, inbox cursor, PR checks via `gh`, spend from job state).
 2. Route inbound replies first: parse with the reply grammar; apply each (answer to worker, plan approval, accept, reject, defer, free text to a worker); log to journal.
 3. Detect anomalies: failed or stopped workers, workers idle with a ticket still `in_progress`, `needs_input` older than the last digest, PR checks red, turn budget exceeded.
-4. Triage: urgent items (from hook classification or anomalies matching the urgent rules) are sent immediately as a short WhatsApp message. Everything else waits for the digest.
+4. Triage: urgent items (from hook classification or anomalies matching the urgent rules) are sent immediately as a short iMessage. Everything else waits for the digest.
 5. Dispatch: for each repo, while active workers < WIP limit, take the next ready ticket and dispatch it.
 6. Digest: if there is anything to decide or accept, render and send one message (section 6). If nothing, send nothing.
 7. Persist: update `state.json`, journal.
