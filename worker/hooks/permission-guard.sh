@@ -8,11 +8,16 @@ HOME_DIR="${AMBROSIO_HOME:-$HOME/.ambrosio}"
 QUEUE="$HOME_DIR/queue"
 mkdir -p "$QUEUE" 2>/dev/null
 
-TICKET="${AMBROSIO_TICKET:-unknown}"
-REPO="${AMBROSIO_REPO:-unknown}"
 TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // "unknown"' 2>/dev/null || echo unknown)
 SESSION=$(printf '%s' "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null || echo unknown)
 CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // "unknown"' 2>/dev/null || echo unknown)
+
+# Never trust AMBROSIO_TICKET on its own; see resolve-ticket.sh.
+# shellcheck source=worker/hooks/resolve-ticket.sh
+source "$(dirname "${BASH_SOURCE[0]}")/resolve-ticket.sh"
+RESOLVED=$(resolve_ticket "$SESSION" "$CWD" "$HOME_DIR")
+TICKET=$(printf '%s' "$RESOLVED" | sed -n 1p)
+REPO=$(printf '%s' "$RESOLVED" | sed -n 2p)
 SUMMARY=$(printf '%s' "$INPUT" | jq -c '.tool_input // {}' 2>/dev/null | cut -c1-500)
 
 HASH=$(printf '%s|%s|%s' "$TICKET" "$TOOL" "$SUMMARY" | shasum -a 256 | cut -c1-10)

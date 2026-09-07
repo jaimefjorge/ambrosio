@@ -147,3 +147,67 @@ test("bash-guard allows ordinary commands", () => {
     expect(r.out.trim()).toBe("");
   }
 });
+
+// --- Ticket attribution -----------------------------------------------------
+// A background session can inherit AMBROSIO_TICKET from an earlier spawn, which
+// once filed a worker's question against another worker's ticket. Jaime's answer
+// would have been injected into the wrong session.
+
+import { mkdirSync, writeFileSync } from "node:fs";
+
+function withSession(repo: string, ticket: string, sessionId: string) {
+  const dir = join(home, "work", repo, ticket);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "sessions.json"), JSON.stringify([{ id: "short1", sessionId, startedAt: "now" }]));
+}
+
+function queued() {
+  const f = queueFiles()[0];
+  return JSON.parse(readFileSync(join(home, "queue", f), "utf8"));
+}
+
+test("ask-guard files the question against the session's real ticket, not a stale env var", () => {
+  withSession("gatemd", "gmc-gfh", "sess-real");
+  const r = run("ask-guard.sh", { ...askPayload(), session_id: "sess-real", cwd: "/w/gmc-gfh-migration" },
+    { AMBROSIO_TICKET: "gmc-4or", AMBROSIO_REPO: "wrong-repo" });
+
+  expect(r.status).toBe(0);
+  expect(queued()).toMatchObject({ ticket: "gmc-gfh", repo: "gatemd" });
+});
+
+test("ask-guard falls back to the worktree path when there is no session record", () => {
+  mkdirSync(join(home, "work", "gatemd", "gmc-gfh"), { recursive: true });
+  run("ask-guard.sh", { ...askPayload(), session_id: "unrecorded", cwd: "/w/.claude/worktrees/gmc-gfh-migration-e2e" },
+    { AMBROSIO_TICKET: "gmc-4or", AMBROSIO_REPO: "wrong-repo" });
+
+  expect(queued()).toMatchObject({ ticket: "gmc-gfh", repo: "gatemd" });
+});
+
+test("ask-guard still uses the env var when nothing better is known", () => {
+  run("ask-guard.sh", { ...askPayload(), session_id: "unknown-sess", cwd: "/tmp/nowhere" },
+    { AMBROSIO_TICKET: "gmc-4or", AMBROSIO_REPO: "gatemd" });
+
+  expect(queued()).toMatchObject({ ticket: "gmc-4or", repo: "gatemd" });
+});
+
+test("two workers asking the same question get separate entries, not one merged one", () => {
+  // The dedupe hash keys on the ticket, so a wrong ticket used to collapse
+  // two workers' questions into a single entry and lose one of them.
+  withSession("gatemd", "gmc-gfh", "sess-a");
+  withSession("gatemd", "gmc-4or", "sess-b");
+  run("ask-guard.sh", { ...askPayload("Which fixture?"), session_id: "sess-a", cwd: "/w/a" }, { AMBROSIO_TICKET: "gmc-4or" });
+  run("ask-guard.sh", { ...askPayload("Which fixture?"), session_id: "sess-b", cwd: "/w/b" }, { AMBROSIO_TICKET: "gmc-4or" });
+
+  const tickets = queueFiles()
+    .map((f) => JSON.parse(readFileSync(join(home, "queue", f), "utf8")).ticket)
+    .sort();
+  expect(tickets).toEqual(["gmc-4or", "gmc-gfh"]);
+});
+
+test("permission-guard resolves the ticket the same way", () => {
+  withSession("gatemd", "gmc-gfh", "sess-real");
+  run("permission-guard.sh", { session_id: "sess-real", cwd: "/w/gmc-gfh", tool_name: "Bash", tool_input: { command: "gh auth login" } },
+    { AMBROSIO_TICKET: "gmc-4or", AMBROSIO_REPO: "wrong-repo" });
+
+  expect(queued()).toMatchObject({ ticket: "gmc-gfh", repo: "gatemd", kind: "permission", urgent: true });
+});

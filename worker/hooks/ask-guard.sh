@@ -16,10 +16,15 @@ deny() {
   exit 0
 }
 
-TICKET="${AMBROSIO_TICKET:-unknown}"
-REPO="${AMBROSIO_REPO:-unknown}"
 SESSION=$(printf '%s' "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null || echo unknown)
 CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // "unknown"' 2>/dev/null || echo unknown)
+
+# Never trust AMBROSIO_TICKET on its own; see resolve-ticket.sh.
+# shellcheck source=worker/hooks/resolve-ticket.sh
+source "$(dirname "${BASH_SOURCE[0]}")/resolve-ticket.sh"
+RESOLVED=$(resolve_ticket "$SESSION" "$CWD" "$HOME_DIR")
+TICKET=$(printf '%s' "$RESOLVED" | sed -n 1p)
+REPO=$(printf '%s' "$RESOLVED" | sed -n 2p)
 QUESTIONS=$(printf '%s' "$INPUT" | jq -c '.tool_input.questions // []' 2>/dev/null || echo '[]')
 FIRST=$(printf '%s' "$QUESTIONS" | jq -r '.[0].question // "(no question text)"' 2>/dev/null || echo "(no question text)")
 

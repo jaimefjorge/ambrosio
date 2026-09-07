@@ -23,9 +23,10 @@ Built against Claude Code 2.1.263, Beads 1.2.2 (Dolt 2.3.2), Bun 1.3.13, macOS.
 | Live fleet view | Working | `bin/ambrosio ui` on 127.0.0.1, polling `/api/board`; `test/ui.test.ts` covers the payload |
 | Answering a question from the fleet view | Working | `POST /api/answer` shares `applyAnswer` with the CLI and the watcher; refused without the local header or from a foreign origin |
 | Per-worker activity, read from the session transcript | Working | Click a worker: ticket, parked questions and the last 60 tool calls and replies. `claude logs` is a terminal replay and unusable for this; the JSONL transcript is the real source |
+| A question is filed against the worker that actually asked it | Fixed, regression-tested | `worker/hooks/resolve-ticket.sh` prefers the session id, then the worktree path, then the env var; verified against the two live sessions that misfired |
 | Reading what Jaime texts | **Fixed, verified against the real database** | `bin/ambrosio inbox` returned a `status` message the channel plugin had silently dropped; a send immediately afterwards was not read back |
 
-124 tests, all passing.
+129 tests, all passing.
 
 ## The inbound channel does not work on this Mac, so Ambrosio reads Messages itself
 
