@@ -241,3 +241,41 @@ test("ordinary git work is still allowed", () => {
   expect(denied("gh pr view 157")).toBe(false);
   expect(denied("git push origin worktree-gmc-4or")).toBe(false);
 }, HOOK_TIMEOUT);
+
+// --- Nothing a worker runs may reach production ---------------------------
+
+test("a worker may not deploy, publish, or cut a release", () => {
+  for (const cmd of [
+    "vercel deploy --prod",
+    "fly deploy",
+    "npm publish",
+    "pnpm publish --access public",
+    "gh release create v0.31.5",
+    "docker push ghcr.io/codacy/verity:latest",
+    "git push origin --tags",
+  ]) expect([cmd, denied(cmd)]).toEqual([cmd, true]);
+}, HOOK_TIMEOUT);
+
+test("a worker may not touch infrastructure or a real database", () => {
+  for (const cmd of [
+    "kubectl apply -f k8s/",
+    "helm upgrade verity ./chart",
+    "terraform apply -auto-approve",
+    "supabase db push",
+    "prisma migrate deploy",
+  ]) expect([cmd, denied(cmd)]).toEqual([cmd, true]);
+}, HOOK_TIMEOUT);
+
+test("the things a worker legitimately does are untouched", () => {
+  for (const cmd of [
+    "npm install",
+    "npm run build",
+    "bun test",
+    "docker build -t local .",
+    "terraform plan",
+    "kubectl get pods",
+    "supabase db diff",
+    "gh release view v0.31.4",
+    "git tag -l",
+  ]) expect([cmd, denied(cmd)]).toEqual([cmd, false]);
+}, HOOK_TIMEOUT);

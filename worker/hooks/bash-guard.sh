@@ -38,4 +38,32 @@ if printf '%s' "$CMD" | grep -qE 'git[[:space:]]+checkout[[:space:]]+(main|maste
   deny "Blocked: merging into main is Jaime's call. Hand over your branch and let him decide."
 fi
 
+# Nothing a worker runs may reach production. This is a floor, not a judgement
+# call: releasing, publishing and deploying are Jaime's, always, and a worker
+# that thinks it has a good reason is exactly the case this exists for.
+if printf '%s' "$CMD" | grep -qE '\b(vercel|netlify|fly|flyctl|railway|heroku)[[:space:]]+(deploy|launch|release)\b'; then
+  deny "Blocked: deploying is Jaime's call and never a worker's. Hand over the branch."
+fi
+if printf '%s' "$CMD" | grep -qE '\bnpm[[:space:]]+publish\b|\byarn[[:space:]]+publish\b|\bpnpm[[:space:]]+publish\b|\bcargo[[:space:]]+publish\b|\btwine[[:space:]]+upload\b'; then
+  deny "Blocked: publishing a package is a release. That is Jaime's call."
+fi
+if printf '%s' "$CMD" | grep -qE '\bgh[[:space:]]+release[[:space:]]+(create|edit|upload|delete)\b'; then
+  deny "Blocked: cutting a release is Jaime's call."
+fi
+if printf '%s' "$CMD" | grep -qE '\bkubectl[[:space:]]+(apply|delete|rollout|scale)\b|\bhelm[[:space:]]+(install|upgrade|uninstall)\b'; then
+  deny "Blocked: changing a cluster is Jaime's call."
+fi
+if printf '%s' "$CMD" | grep -qE '\bterraform[[:space:]]+(apply|destroy)\b|\bpulumi[[:space:]]+up\b'; then
+  deny "Blocked: applying infrastructure changes is Jaime's call."
+fi
+if printf '%s' "$CMD" | grep -qE '\bsupabase[[:space:]]+db[[:space:]]+(push|reset)\b|\bprisma[[:space:]]+migrate[[:space:]]+deploy\b|\bdrizzle-kit[[:space:]]+push\b'; then
+  deny "Blocked: running a migration against a real database is Jaime's call."
+fi
+if printf '%s' "$CMD" | grep -qE '\bdocker[[:space:]]+push\b'; then
+  deny "Blocked: pushing an image is a release step. That is Jaime's call."
+fi
+if printf '%s' "$CMD" | grep -qE '\bgit[[:space:]]+tag\b[^|;&]*-[^|;&]*&&[^|;&]*push|\bgit[[:space:]]+push[^|;&]*--tags\b'; then
+  deny "Blocked: pushing tags is how a release starts. That is Jaime's call."
+fi
+
 exit 0
