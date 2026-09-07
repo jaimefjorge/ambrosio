@@ -5,6 +5,7 @@ import type { Board } from "./board.ts";
 import { collectBoard } from "./board.ts";
 import { assignKeys } from "./digest.ts";
 import * as queue from "./queue.ts";
+import { readTranscript, type Event } from "./transcript.ts";
 
 export type UiWorker = {
   id?: string;
@@ -95,6 +96,49 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
   };
 }
 
+export type UiWorkerDetail = {
+  worker: UiWorker;
+  sessionId?: string;
+  transcript: Event[];
+  ticket?: { id: string; repo: string; title: string; status: string; description?: string; acceptance?: string };
+  questions: UiQuestion[];
+};
+
+/**
+ * One worker, in full: what it is doing right now, the ticket it is doing it
+ * for, and anything it has parked for Jaime.
+ */
+export function buildWorkerDetail(
+  cfg: AmbrosioConfig,
+  board: Board,
+  id: string,
+  read: typeof readTranscript = readTranscript,
+): UiWorkerDetail | null {
+  const payload = buildPayload(cfg, board);
+  const worker = payload.workers.find((w) => w.id === id || w.name === id);
+  if (!worker) return null;
+
+  const agent = board.agents.find((a) => a.id === worker.id);
+  const ticket = worker.name ? board.all.find((t) => t.id.toLowerCase() === worker.name!.toLowerCase()) : undefined;
+
+  return {
+    worker,
+    sessionId: agent?.sessionId,
+    transcript: agent?.sessionId ? read(agent.sessionId, agent.cwd, 60) : [],
+    ticket: ticket
+      ? {
+          id: ticket.id,
+          repo: ticket.repo ?? "",
+          title: ticket.title,
+          status: ticket.status,
+          description: ticket.description,
+          acceptance: ticket.acceptance_criteria,
+        }
+      : undefined,
+    questions: payload.questions.filter((q) => worker.name && q.ticket.toLowerCase() === worker.name.toLowerCase()),
+  };
+}
+
 /**
  * Serve the fleet view on localhost. Nothing leaves the machine: the page is a
  * single local file and the only request it makes is back to this process.
@@ -107,6 +151,17 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
     hostname: "127.0.0.1",
     fetch(req) {
       const url = new URL(req.url);
+
+      const worker = url.pathname.match(/^\/api\/worker\/(.+)$/);
+      if (worker) {
+        try {
+          const detail = buildWorkerDetail(cfg, collectBoard(cfg), decodeURIComponent(worker[1]));
+          if (!detail) return Response.json({ error: "no such worker" }, { status: 404 });
+          return Response.json(detail);
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 500 });
+        }
+      }
 
       if (url.pathname === "/api/board") {
         try {

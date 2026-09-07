@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildPayload } from "../src/ui.ts";
+import { buildPayload, buildWorkerDetail } from "../src/ui.ts";
 import type { AmbrosioConfig } from "../src/config.ts";
 import type { Board } from "../src/board.ts";
 
@@ -82,5 +82,39 @@ describe("buildPayload", () => {
   test("passes anomalies through: they are the reason to look at this screen", () => {
     const p = buildPayload(cfg, board({ anomalies: ["T-9 has been working for 4h"] }));
     expect(p.anomalies).toEqual(["T-9 has been working for 4h"]);
+  });
+});
+
+describe("buildWorkerDetail", () => {
+  const b = () => board({
+    agents: [agent({ id: "a1", name: "T-1", state: "working", sessionId: "sess-1" })],
+    all: [ticket({ id: "T-1", title: "Fix the thing", description: "why", acceptance_criteria: "tests green" })],
+    questions: [
+      { qid: "q-1", ticket: "T-1", repo: "gatemd", urgent: false, summary: "Which budget?" } as any,
+      { qid: "q-2", ticket: "T-2", repo: "gatemd", urgent: false, summary: "Other ticket" } as any,
+    ],
+  });
+
+  test("finds a worker by session id or by ticket name", () => {
+    expect(buildWorkerDetail(cfg, b(), "a1", () => [])?.worker.name).toBe("T-1");
+    expect(buildWorkerDetail(cfg, b(), "T-1", () => [])?.worker.id).toBe("a1");
+  });
+
+  test("returns null for a worker that is not there, rather than an empty shell", () => {
+    expect(buildWorkerDetail(cfg, b(), "nope", () => [])).toBeNull();
+  });
+
+  test("carries the ticket's acceptance criteria: that is what 'done' means", () => {
+    expect(buildWorkerDetail(cfg, b(), "a1", () => [])?.ticket?.acceptance).toBe("tests green");
+  });
+
+  test("reads the transcript for that session", () => {
+    const d = buildWorkerDetail(cfg, b(), "a1", (sid) => [{ kind: "text", summary: `from ${sid}` }] as any);
+    expect(d?.transcript[0].summary).toBe("from sess-1");
+  });
+
+  test("shows only the questions parked by this worker", () => {
+    const d = buildWorkerDetail(cfg, b(), "a1", () => []);
+    expect(d?.questions.map((q) => q.qid)).toEqual(["q-1"]);
   });
 });
