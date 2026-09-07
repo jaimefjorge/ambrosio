@@ -71,7 +71,10 @@ export function renderDigest(board: BoardState): string[] {
   ].filter(Boolean);
   const state = board.paused ? "PAUSED · " : "";
   lines.push(`Ambrosio · ${hhmm(board.now)} · ${state}${counts.length ? counts.join(", ") : "all quiet"}`);
-  if (board.paused) lines.push(`paused since ${board.paused.since.slice(11, 16) || "?"}: ${board.paused.reason} — reply 'resume' to start again`);
+  if (board.paused) {
+    const since = new Date(board.paused.since);
+    lines.push(`paused since ${isNaN(since.getTime()) ? "?" : hhmm(since)}: ${board.paused.reason} — reply 'resume' to start again`);
+  }
 
   if (board.questions.length > 0) {
     lines.push("", "DECIDE");

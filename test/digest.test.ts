@@ -125,4 +125,7 @@ test("a paused fleet says so in the headline, before anything else", () => {
   }));
   expect(out[0].split("\n")[0]).toContain("PAUSED");
   expect(out[0]).toContain("taking stock");
+  // Local time, like every other clock on the digest — not a slice of the ISO string.
+  const local = new Date("2026-09-07T15:58:00.000Z");
+  expect(out[0]).toContain(`since ${String(local.getHours()).padStart(2, "0")}:58`);
 });
