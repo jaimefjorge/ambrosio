@@ -8,8 +8,8 @@ export type Reply =
   | { kind: "plan"; key: string; decision: "ok" | "change"; note?: string }
   | { kind: "accept"; key: string; note?: string }
   | { kind: "reject"; key: string; note?: string }
-  | { kind: "defer"; ticket: string }
-  | { kind: "stop"; ticket: string }
+  | { kind: "defer"; ticket: string; note?: string }
+  | { kind: "stop"; ticket: string; note?: string }
   | { kind: "message"; ticket: string; text: string }
   | { kind: "status" }
   | { kind: "quiet"; until: string }
@@ -20,7 +20,7 @@ export type Reply =
 const ANSWER = /^q\s*[-.]?\s*(\d+)\s+([^\s:]+)\s*(?::\s*(.*))?$/i;
 const PLAN = /^p\s*[-.]?\s*(\d+)\s+(ok|approve|approved|yes|change|changes|no)\s*(?::\s*(.*))?$/i;
 const ACCEPT = /^a\s*[-.]?\s*(\d+)\s+(accept|accepted|ok|yes|reject|rejected|no)\s*(?::\s*(.*))?$/i;
-const TICKET_CMD = /^(?:t[-\s]?)?([a-z0-9]+-[a-z0-9]+)\s+(defer|stop|park)$/i;
+const TICKET_CMD = /^(?:t[-\s]?)?([a-z0-9]+-[a-z0-9]+)\s+(defer|stop|park)\s*(?::\s*(.*))?$/i;
 const MENTION = /^@\s*(?:t[-\s]?)?([a-z0-9]+-[a-z0-9]+)\s+(.+)$/i;
 const QUIET = /^quiet(?:\s+until)?\s+(\d{1,2}:\d{2}|\d{1,2}\s*(?:am|pm))$/i;
 
@@ -64,7 +64,9 @@ export function parseLine(raw: string): Reply | null {
   const cmd = TICKET_CMD.exec(line);
   if (cmd) {
     const ticket = cmd[1];
-    return /^stop$/i.test(cmd[2]) ? { kind: "stop", ticket } : { kind: "defer", ticket };
+    const note = clean(cmd[3]);
+    const kind = /^stop$/i.test(cmd[2]) ? "stop" : "defer";
+    return note ? { kind, ticket, note } : { kind, ticket };
   }
 
   return { kind: "unparsed", text: line };

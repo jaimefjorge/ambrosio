@@ -43,7 +43,7 @@ function mountFleet() {
     getComputedStyle: () => ({ getPropertyValue: () => "#000" }),
   };
   const api = new Function(...Object.keys(stubs),
-    `${script}\nreturn { render, setMood: butler.setMoodFromBoard, openMenu, askAbout, closeMenu, sayToAmbrosio, showTab, renderTicket, openTicket };`)(...Object.values(stubs));
+    `${script}\nreturn { render, setMood: butler.setMoodFromBoard, openMenu, askAbout, closeMenu, sayToAmbrosio, showTab, renderTicket, openTicket, renderMission, takeOver };`)(...Object.values(stubs));
   return { api, nodes, posted, html: (id: string) => `${nodes[id]?.innerHTML ?? ""}${nodes[id]?.textContent ?? ""}` };
 }
 
@@ -422,5 +422,65 @@ describe("the brief in the drawer", () => {
     const m = mountFleet();
     m.api.renderTicket({ ticket: { id: "x", repo: "r", title: "x", status: "in_review", priority: 3, acceptance: [] }, brief: null, handover: "", comments: [], defects: [], plan: "", evidence: "", timeline: [], iteration: 0 });
     expect(m.html("d-body")).toMatch(/brief.*not written yet|no brief yet/i);
+  });
+});
+
+describe("the mission map", () => {
+  const map = {
+    mission: "Release the Claude Code plugin", date: "2026-09-08",
+    roots: [{ id: "gmc-4or", repo: "gatemd-core", title: "Fresh-repo e2e", status: "deferred", priority: 0, depth: 0, why: "planned for the mission",
+      children: [{ id: "gmc-br5", repo: "gatemd-core", title: "no-origin gate", status: "open", priority: 1, depth: 1, why: "found while doing gmc-4or: Fresh-repo e2e", children: [] }] }],
+    earlier: [{ id: "gmc-old", repo: "gatemd-core", title: "older", status: "in_progress", priority: 2, depth: 0, why: "from before today's mission", children: [] }],
+    orphans: [],
+  };
+  test("hangs each ticket off the mission with the reason it exists, and shows earlier work apart", () => {
+    const m = mountFleet();
+    m.api.renderMission(map);
+    const out = m.html("mission");
+    expect(out).toContain("Release the Claude Code plugin");
+    expect(out.indexOf("gmc-4or")).toBeLessThan(out.indexOf("gmc-br5"));
+    expect(out).toContain("found while doing gmc-4or");
+    expect(out).toContain("Before today");
+    expect(out).toContain("gmc-old");
+    expect(out).toContain('data-open="gmc-br5"');
+  });
+  test("no mission says so, and orphans are called out", () => {
+    const m = mountFleet();
+    m.api.renderMission({ ...map, mission: null, roots: [], earlier: [], orphans: [{ id: "x", repo: "r", title: "loose", status: "open", priority: 2, depth: 0, why: "linked in a loop; hangs off nothing", children: [] }] });
+    const out = m.html("mission");
+    expect(out).toMatch(/no mission set/i);
+    expect(out).toContain("hangs off nothing");
+  });
+  test("has its own tab", () => {
+    const m = mountFleet();
+    m.api.showTab("mission");
+    expect(m.nodes.mission.hidden).toBe(false);
+    expect(m.nodes.board.hidden).toBe(true);
+  });
+});
+
+describe("taking over from the drawer", () => {
+  const detail = { ticket: { id: "gmc-axx", repo: "gatemd-core", title: "x", status: "in_progress", priority: 3, acceptance: [] }, brief: null, handover: "", comments: [], defects: [], plan: "", evidence: "", timeline: [], iteration: 0 };
+  test("offers stop, park and feedback with a reason", () => {
+    const m = mountFleet();
+    m.api.renderTicket(detail);
+    const body = m.html("d-body");
+    expect(body).toContain('data-takeover="stop"');
+    expect(body).toContain('data-takeover="defer"');
+    expect(body).toContain('data-takeover="tell"');
+  });
+  test("each goes through the dialog in the grammar, reason attached", async () => {
+    const m = mountFleet();
+    m.api.renderTicket(detail);
+    await m.api.takeOver("stop", "gmc-axx", "wrong approach");
+    await m.api.takeOver("defer", "gmc-axx", "after the release");
+    await m.api.takeOver("tell", "gmc-axx", "next time split the harness first");
+    const said = m.posted.filter((p) => p.url === "/api/dialog").map((p) => p.body.text);
+    expect(said).toEqual(["gmc-axx stop: wrong approach", "gmc-axx defer: after the release", "About gmc-axx: next time split the harness first"]);
+  });
+  test("stopping without a reason is refused before anything is sent", async () => {
+    const m = mountFleet();
+    await m.api.takeOver("stop", "gmc-axx", "  ");
+    expect(m.posted.filter((p) => p.url === "/api/dialog")).toEqual([]);
   });
 });

@@ -35,7 +35,7 @@ export function describe(a: Action): { ok: boolean; text: string } {
     case "paused": return { ok: true, text: `Paused: ${a.reason}. Nothing starts or resumes until you say resume.` };
     case "resumed": return { ok: true, text: "Resumed. The next pass dispatches and delivers again." };
     case "status": return { ok: true, text: "Sent you the board." };
-    case "parked": return { ok: true, text: `${a.ticket} parked${a.stopped ? " and its worker stopped" : ""}.` };
+    case "parked": return { ok: true, text: `${a.ticket} ${a.stopped ? "stopped, worker killed" : "parked"}${a.note ? ` — "${a.note}" is on its timeline and its ticket` : ""}.` };
     case "decided": return { ok: a.outcome !== "no_worker", text: a.outcome === "escalated" ? `${a.ticket}: bounced too many times — escalated to you for a rewrite, not re-dispatched.` : `${a.ticket}: ${a.outcome}.` };
     case "answered": return { ok: true, text: `Answer routed to ${a.ticket} (${a.delivery}).` };
     case "answered_question": return { ok: true, text: "Answered." };

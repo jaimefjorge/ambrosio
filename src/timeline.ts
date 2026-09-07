@@ -15,7 +15,7 @@ import * as journal from "./journal.ts";
 export type EventKind =
   | "dispatched" | "status" | "question" | "answered"
   | "plan_ok" | "plan_change" | "rejected" | "accepted"
-  | "iteration" | "escalated" | "stale" | "briefed"
+  | "iteration" | "escalated" | "stale" | "briefed" | "stopped" | "parked"
   | "defect_linked" | "defect_closed"
   | "merged" | "main_green" | "main_red";
 

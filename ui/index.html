@@ -101,6 +101,18 @@
   #drawer .crit li { margin: 2px 0; }
   #drawer .land.ok { color: var(--ok, #2a7); }
   #drawer .land.no { color: var(--failed); }
+  .mnode { padding: 4px 0 2px 0; }
+  .mnode.d1 { margin-left: 22px; } .mnode.d2 { margin-left: 44px; } .mnode.d3 { margin-left: 66px; } .mnode.d4 { margin-left: 88px; }
+  .mrow { cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+  .mrow:hover b { text-decoration: underline; }
+  .mstate { margin-left: auto; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+  .mwhy { font-size: 11px; color: var(--dim); margin-left: 16px; }
+  .mnode.closed > .mrow, .mnode.deferred > .mrow { opacity: .55; }
+  .mhead { margin-bottom: 10px; }
+  .takeover input { width: 100%; font: inherit; font-size: 12px; padding: 5px 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); margin-bottom: 6px; }
+  .takeover .row { display: flex; gap: 6px; }
+  .takeover button { font: inherit; font-size: 11px; padding: 4px 10px; border: 1px solid var(--line); background: none; color: var(--ink); cursor: pointer; }
+  .takeover button[data-takeover="stop"] { border-color: var(--failed); color: var(--failed); }
   #d-ask { width: 100%; font: inherit; font-size: 12px; padding: 5px 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
   .q .land.ok { color: var(--ok, #2a7); }
   .q .land.no { color: var(--failed); }
@@ -250,8 +262,11 @@
 
 <nav id="tabs">
   <button data-tab="board" class="on">Board</button>
+  <button data-tab="mission">Mission</button>
   <button data-tab="dialog">Dialog<span id="tab-standing" class="badge" hidden></span></button>
 </nav>
+
+<section id="mission" class="tab" hidden></section>
 
 <section id="board" class="tab">
 <div id="stale"></div>
@@ -295,7 +310,7 @@
 
 <script src="/butler.js"></script>
 <script>
-const UI_VERSION = "13";       // must match UI_VERSION in src/ui.ts
+const UI_VERSION = "14";       // must match UI_VERSION in src/ui.ts
 const answers = {};            // qid -> draft text, kept across re-renders
 const said = {};               // qid -> what happened when we sent it
 let lastQSig = null;           // questions panel is only rebuilt when it changes
@@ -713,6 +728,15 @@ function renderTicket(d) {
   }
   if (d.evidence) { parts.push('<div class="sub">Evidence (tail)</div>'); parts.push(`<div class="box pre small">${esc(d.evidence)}</div>`); }
   if (d.plan) { parts.push('<div class="sub">Plan (tail)</div>'); parts.push(`<div class="box pre small">${esc(d.plan)}</div>`); }
+  parts.push(`<div class="sub">Take over</div><div class="box takeover">
+    <input id="d-reason" placeholder="say why — it goes on the ticket, its timeline, and the next dispatch reads it first">
+    <div class="row">
+      <button data-takeover="stop" data-ticket="${esc(t.id)}">stop this work</button>
+      <button data-takeover="defer" data-ticket="${esc(t.id)}">park it</button>
+      <button data-takeover="tell" data-ticket="${esc(t.id)}">tell Ambrosio</button>
+    </div>
+    <div id="d-took" class="said"></div>
+  </div>`);
   parts.push(`<div class="sub">Ask Ambrosio about this</div><div class="box"><input id="d-ask" placeholder="why is it not landable? what did the reviewer say?"><div id="d-answer" class="pre"></div></div>`);
   $("d-body").innerHTML = parts.join("");
   const ask = document.getElementById("d-ask");
@@ -726,6 +750,32 @@ function renderTicket(d) {
     } catch (err) { out.textContent = "Could not ask: " + err.message; }
   });
 }
+
+// Stop, park, or give feedback — through the dialog, in the grammar, so the
+// same guardrails and the same record apply as from Messages.
+async function takeOver(kind, id, reason) {
+  reason = (reason || "").trim();
+  const took = document.getElementById("d-took");
+  if (!reason) { if (took) took.textContent = "Say why first — the reason is the useful part."; return; }
+  const text = kind === "tell" ? `About ${id}: ${reason}` : `${id} ${kind}: ${reason}`;
+  if (took) took.textContent = "…";
+  try {
+    const r = await fetch("/api/dialog", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    if (took) took.textContent = d.reply ? d.reply.text : "done";
+    renderDialog(d);
+    poll();
+  } catch (e) {
+    if (took) took.textContent = "Could not: " + e.message;
+  }
+}
+$("d-body").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-takeover]");
+  if (!b) return;
+  const reason = document.getElementById("d-reason");
+  takeOver(b.dataset.takeover, b.dataset.ticket, reason ? reason.value : "");
+});
 
 async function openTicket(repo, id) {
   selected = null;
@@ -810,9 +860,44 @@ let last = { dialog: [], instructions: [] };
 
 // Two tabs: the board is what is happening; the dialog is Jaime and Ambrosio
 // talking. Which one he left open is remembered per browser, nothing more.
-const TABS = ["board", "dialog"];
+const TABS = ["board", "mission", "dialog"];
+function renderMission(m) {
+  const node = (n) => `
+    <div class="mnode d${Math.min(n.depth, 4)} ${esc(n.status)}">
+      <div class="mrow" data-open="${esc(n.id)}" data-repo="${esc(n.repo)}">
+        <span class="dot"></span>
+        <b>${esc(n.id)}</b> ${esc(n.title)}
+        <span class="mstate">${esc(n.status)} · P${esc(String(n.priority))}</span>
+      </div>
+      <div class="mwhy">${esc(n.why)}</div>
+      ${n.children.map(node).join("")}
+    </div>`;
+  const group = (label, nodes) => nodes.length ? `<div class="label">${label}</div>${nodes.map(node).join("")}` : "";
+  $("mission").innerHTML =
+    `<div class="panel mhead">${m.mission ? `<b>${esc(m.mission)}</b> <span class="mstate">${esc(m.date || "")}</span>` : "<span class=\"empty\">No mission set today — tickets below are not yet tied to one. Set it at plan-day.</span>"}</div>` +
+    (m.roots.length ? `<div class="panel">${m.roots.map(node).join("")}</div>` : "") +
+    (m.earlier.length ? `<div class="panel">${group("Before today", m.earlier)}</div>` : "") +
+    (m.orphans.length ? `<div class="panel">${group("Hangs off nothing", m.orphans)}</div>` : "") +
+    (!m.roots.length && !m.earlier.length && !m.orphans.length ? '<div class="panel empty">No tickets.</div>' : "");
+}
+async function loadMission() {
+  try {
+    const r = await fetch("/api/mission");
+    const m = await r.json();
+    if (m.error) throw new Error(m.error);
+    renderMission(m);
+  } catch (e) {
+    $("mission").innerHTML = `<div class="panel empty">Could not load the mission map: ${esc(e.message)}</div>`;
+  }
+}
+$("mission").addEventListener("click", (e) => {
+  const open = e.target.closest("[data-open]");
+  if (open) openTicket(open.dataset.repo, open.dataset.open);
+});
+
 function showTab(name) {
   if (!TABS.includes(name)) name = "board";
+  if (name === "mission") loadMission();
   for (const t of TABS) $(t).hidden = t !== name;
   for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === name);
   try { localStorage.setItem("ambrosio.tab", name); } catch {}

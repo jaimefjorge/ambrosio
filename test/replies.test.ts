@@ -55,3 +55,9 @@ test("pause and resume are part of the grammar", () => {
   expect(parseReplies("Pause: back tomorrow")).toEqual([{ kind: "pause", reason: "back tomorrow" }]);
   expect(parseReplies("resume")).toEqual([{ kind: "resume" }]);
 });
+
+test("stop and defer take a reason, which is what the worker and the journal get", () => {
+  expect(parseLine("gmc-a1b stop: wrong approach, we discussed a shim")).toEqual({ kind: "stop", ticket: "gmc-a1b", note: "wrong approach, we discussed a shim" });
+  expect(parseLine("gmc-a1b defer: after the release")).toEqual({ kind: "defer", ticket: "gmc-a1b", note: "after the release" });
+  expect(parseLine("gmc-a1b stop")).toEqual({ kind: "stop", ticket: "gmc-a1b" });
+});

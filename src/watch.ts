@@ -14,7 +14,7 @@ export type Action =
   | { kind: "status" }
   | { kind: "paused"; reason: string }
   | { kind: "resumed" }
-  | { kind: "parked"; ticket: string; stopped: boolean }
+  | { kind: "parked"; ticket: string; stopped: boolean; note?: string }
   | { kind: "decided"; ticket: string; outcome: string }
   | { kind: "answered_question" }
   | { kind: "escalated"; why: string }
@@ -94,9 +94,13 @@ export function routeReply(cfg: AmbrosioConfig, reply: Reply, snap: Snapshot, de
       const t = snap.tickets.find((x) => x.id.toLowerCase() === reply.ticket.toLowerCase());
       if (!t) return { kind: "escalated", why: `${reply.ticket} is not a ticket on the board` };
       const stopping = reply.kind === "stop";
-      deps.transition(cfg, t.repo, t.id, "deferred", stopping ? "Jaime stopped it" : "Jaime deferred it");
+      const why = reply.note ? `: ${reply.note}` : "";
+      deps.transition(cfg, t.repo, t.id, "deferred", `${stopping ? "Jaime stopped it" : "Jaime deferred it"}${why}`);
       if (stopping) deps.stopWorker(t.id);
-      return { kind: "parked", ticket: t.id, stopped: stopping };
+      // His reason is the most useful line on the timeline: it is what the
+      // next dispatch, and the brief, will read first.
+      timeline.record(cfg.homeDir, t.repo, t.id, { kind: stopping ? "stopped" : "parked", by: "jaime", note: reply.note });
+      return { kind: "parked", ticket: t.id, stopped: stopping, ...(reply.note ? { note: reply.note } : {}) };
     }
 
     case "plan":

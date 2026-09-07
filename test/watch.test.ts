@@ -279,3 +279,20 @@ describe("the hand-over brief", () => {
     expect(briefed).toEqual(["gatemd/T-3"]);
   });
 });
+
+describe("taking over", () => {
+  test("stopping with a reason tells the ticket why, stops the worker, and records it as Jaime's", async () => {
+    const home = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "amb-to-"));
+    const c = { ...cfg, homeDir: home } as AmbrosioConfig;
+    const { deps, log } = spyDeps([msg("gmc-a1b stop: wrong approach")], {
+      snapshot: () => ({ keys: { questions: {}, plans: {}, accept: {} }, tickets: [{ id: "gmc-a1b", repo: "gatemd" }] }),
+    });
+    const r = onePass(c, deps);
+    expect(log).toContain("transition:gatemd:gmc-a1b:deferred");
+    expect(log).toContain("stop:gmc-a1b");
+    expect(r.handled[0].actions[0]).toMatchObject({ kind: "parked", ticket: "gmc-a1b", stopped: true, note: "wrong approach" });
+    const { read } = await import("../src/timeline.ts");
+    const ev = read(home, "gatemd", "gmc-a1b");
+    expect(ev.some((e) => e.kind === "stopped" && e.by === "jaime" && e.note === "wrong approach")).toBe(true);
+  });
+});

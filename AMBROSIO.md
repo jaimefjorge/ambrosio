@@ -64,7 +64,7 @@ Jaime answers from Messages, one item per line, case-insensitive:
 | `Q3 b` or `Q3 b: also update the docs` | Answer question 3 with option b, optional note |
 | `P2 ok` / `P2 change: split step 3` | Approve or bounce a plan |
 | `A1 accept` / `A1 reject: needs a test for empty input` | Accept or reject finished work |
-| `T-abc defer` / `T-abc stop` | Park or stop a ticket |
+| `T-abc defer` / `T-abc stop: <why>` | Park or stop a ticket; the reason goes on its ticket and timeline, and the next dispatch reads it first |
 | `@T-abc rebase on main first` | Free text to that worker |
 | `status` | Send the board now |
 | `quiet until 15:00` | Suppress digests until then |
