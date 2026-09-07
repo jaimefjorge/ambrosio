@@ -111,11 +111,10 @@ import * as agents from "./agents.ts";
 import * as imessage from "./imessage.ts";
 import * as inbox from "./inbox.ts";
 import * as journal from "./journal.ts";
-import * as queue from "./queue.ts";
 import * as tracker from "./tracker.ts";
 import { collectBoard } from "./board.ts";
 import { assignKeys, renderDigest } from "./digest.ts";
-import { deliverAnswer } from "./dispatch.ts";
+import { applyAnswer } from "./dispatch.ts";
 
 /** A woken manager costs a session, so never storm it. */
 const WAKE_COOLDOWN_MS = 60_000;
@@ -143,14 +142,7 @@ export function realDeps(): WatchDeps {
       return { keys: assignKeys(board), tickets: board.all.map((t) => ({ id: t.id, repo: t.repo ?? "" })) };
     },
 
-    answer: (cfg, qid, text) => {
-      const item = queue.get(cfg.homeDir, qid);
-      if (!item) throw new Error(`no such question: ${qid}`);
-      queue.answer(cfg.homeDir, qid, text);
-      const how = deliverAnswer(cfg, { ticket: item.ticket, repo: item.repo, sessionId: item.sessionId, text });
-      if (how === "resumed") queue.markDelivered(cfg.homeDir, qid);
-      return how;
-    },
+    answer: (cfg, qid, text) => applyAnswer(cfg, qid, text).delivery,
 
     sendDigest: (cfg) => {
       imessage.sendAll(cfg, renderDigest(collectBoard(cfg)));

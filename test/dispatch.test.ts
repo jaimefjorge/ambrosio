@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderWorkerPrompt, workDirFor, DispatchError } from "../src/dispatch.ts";
@@ -105,4 +105,48 @@ test("deliverAnswer resumes with the session UUID, never the short job id", asyn
     );
   } catch { /* tracker write is not stubbed; the id is what this test asserts */ }
   expect(usedId).toBe("c3912149-1d31-4660-b2ee-56ebac4905fc");
+});
+
+// --- applyAnswer: the one path the CLI, the watcher and the UI all share ---
+
+import { describe } from "bun:test";
+import { applyAnswer } from "../src/dispatch.ts";
+import * as queue from "../src/queue.ts";
+
+/** The hook writes queue items as files; do the same rather than mock the store. */
+function withQuestion(home: string, qid = "q-1") {
+  const dir = join(home, "queue");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${qid}.json`), JSON.stringify({
+    qid, kind: "question", ticket: "c-a1b", repo: "core",
+    sessionId: "11111111-2222-3333-4444-555555555555", cwd: "/tmp/core",
+    summary: "Which retry budget?", urgent: false,
+    status: "open", hash: qid, createdAt: new Date().toISOString(),
+  }));
+}
+
+describe("applyAnswer", () => {
+  test("records the answer and marks it delivered once the worker takes it", () => {
+    const c = cfg();
+    withQuestion(c.homeDir);
+    const r = applyAnswer(c, "q-1", "three retries", () => "resumed");
+
+    expect(r).toMatchObject({ ticket: "c-a1b", delivery: "resumed" });
+    expect(queue.get(c.homeDir, "q-1")).toMatchObject({ status: "delivered", answer: "three retries" });
+  });
+
+  test("keeps a busy worker's answer queued rather than losing it", () => {
+    const c = cfg();
+    withQuestion(c.homeDir);
+    const r = applyAnswer(c, "q-1", "three retries", () => "deferred");
+
+    // Still answered, not yet delivered: the next tick hands it over.
+    expect(r.delivery).toBe("deferred");
+    expect(queue.get(c.homeDir, "q-1")).toMatchObject({ status: "answered" });
+  });
+
+  test("refuses a question that does not exist instead of writing a stray file", () => {
+    const c = cfg();
+    expect(() => applyAnswer(c, "q-nope", "x", () => "resumed")).toThrow(DispatchError);
+  });
 });

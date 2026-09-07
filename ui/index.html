@@ -61,6 +61,25 @@
   .opts { margin-top: 4px; font-size: 12px; color: var(--dim); }
   .tag { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--failed); margin-left: 6px; }
 
+  .answer { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .answer input {
+    flex: 1 1 220px; min-width: 0; font: inherit; font-size: 12px; padding: 5px 8px;
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 4px;
+  }
+  .answer input:focus { outline: none; border-color: var(--ink); }
+  .answer button {
+    font: inherit; font-size: 12px; padding: 5px 11px; cursor: pointer; border-radius: 4px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  }
+  .answer button:hover { border-color: var(--ink); }
+  .answer button.send { border-color: var(--working); color: var(--working); font-weight: 600; }
+  .answer button:disabled { opacity: .5; cursor: default; }
+  .said { margin-top: 6px; font-size: 12px; color: var(--working); }
+  .said.bad { color: var(--failed); }
+
+  #stale-banner { border-color: var(--failed); background: var(--urgent-bg); padding: 10px 12px;
+                  margin-bottom: 10px; color: var(--failed); }
+
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   td { padding: 5px 12px; border-bottom: 1px solid var(--line); }
   tr:last-child td { border-bottom: 0; }
@@ -108,6 +127,7 @@
   <div id="live">connecting…</div>
 </header>
 
+<div id="stale"></div>
 <div id="anomalies"></div>
 
 <h2>Needs you</h2>
@@ -130,6 +150,11 @@
 <div class="panel" id="tickets"></div>
 
 <script>
+const UI_VERSION = "2";        // must match UI_VERSION in src/ui.ts
+const answers = {};            // qid -> draft text, kept across re-renders
+const said = {};               // qid -> what happened when we sent it
+let lastQSig = null;           // questions panel is only rebuilt when it changes
+
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -157,14 +182,28 @@ function render(d) {
     ? `<div class="panel banner">${d.anomalies.map((a) => `<div>! ${esc(a)}</div>`).join("")}</div>`
     : "";
 
-  $("questions").innerHTML = d.questions.length
+  const qSig = JSON.stringify(d.questions.map((q) => [q.qid, q.summary, q.urgent, q.options]));
+  if (qSig !== lastQSig) {
+    lastQSig = qSig;
+    $("questions").innerHTML = d.questions.length
     ? d.questions.map((q) => `
-        <div class="q ${q.urgent ? "urgent" : ""}">
+        <div class="q ${q.urgent ? "urgent" : ""}" data-qid="${esc(q.qid)}">
           <div><span class="key">${esc(q.key)}</span> ${esc(q.summary)}
             ${q.urgent ? '<span class="tag">urgent</span>' : ""}</div>
-          <div class="opts">${esc(q.repo)} ${esc(q.ticket)}${q.options.length ? " — " + q.options.map(esc).join(" · ") : ""}</div>
+          <div class="opts">${esc(q.repo)} ${esc(q.ticket)}</div>
+          <div class="answer">
+            ${q.options.map((o) => `<button class="opt" data-opt="${esc(o)}">${esc(o)}</button>`).join("")}
+            <input placeholder="answer ${esc(q.key)}…" value="${esc(answers[q.qid] || "")}">
+            <button class="send">send</button>
+          </div>
+          <div class="said" data-said="${esc(q.qid)}">${esc(said[q.qid] || "")}</div>
         </div>`).join("")
-    : '<div class="empty">Nothing waiting on you.</div>';
+      : '<div class="empty">Nothing waiting on you.</div>';
+  }
+  for (const [qid, msg] of Object.entries(said)) {
+    const el = document.querySelector(`[data-said="${CSS.escape(qid)}"]`);
+    if (el) { el.textContent = msg; el.className = "said" + (msg.startsWith("!") ? " bad" : ""); }
+  }
 
   // Blocked first: those are the ones costing you time.
   const order = { blocked: 0, failed: 1, working: 2, stopped: 3, done: 4 };
@@ -194,6 +233,60 @@ function render(d) {
             <td>${esc(t.title)}</td><td class="s">${esc(t.status)}</td></tr>`).join("")}</table>`
     : '<div class="empty">No tickets.</div>';
 }
+
+async function sendAnswer(row) {
+  const qid = row.dataset.qid;
+  const input = row.querySelector("input");
+  const text = input.value.trim();
+  if (!text) { input.focus(); return; }
+
+  const buttons = row.querySelectorAll("button");
+  buttons.forEach((b) => (b.disabled = true));
+  said[qid] = "sending…";
+  try {
+    const r = await fetch("/api/answer", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-ambrosio": "1" },
+      body: JSON.stringify({ qid, text }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || "failed");
+    said[qid] = d.delivery === "resumed"
+      ? `sent — ${d.ticket} picked it up`
+      : `sent — ${d.ticket} is mid-turn, the next tick hands it over`;
+    delete answers[qid];
+    input.value = "";
+    lastQSig = null;   // let the panel rebuild now that this one is answered
+  } catch (e) {
+    said[qid] = "! " + e.message;
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+    poll();
+  }
+}
+
+$("questions").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-qid]");
+  if (!row) return;
+  if (e.target.classList.contains("opt")) {
+    const input = row.querySelector("input");
+    input.value = e.target.dataset.opt;
+    answers[row.dataset.qid] = input.value;
+    input.focus();
+  } else if (e.target.classList.contains("send")) {
+    sendAnswer(row);
+  }
+});
+
+$("questions").addEventListener("input", (e) => {
+  const row = e.target.closest("[data-qid]");
+  if (row) answers[row.dataset.qid] = e.target.value;
+});
+
+$("questions").addEventListener("keydown", (e) => {
+  const row = e.target.closest("[data-qid]");
+  if (row && e.key === "Enter") { e.preventDefault(); sendAnswer(row); }
+});
 
 let selected = null;   // id of the worker whose drawer is showing
 
@@ -278,6 +371,9 @@ async function poll() {
     const r = await fetch("/api/board");
     const d = await r.json();
     if (d.error) throw new Error(d.error);
+    $("stale").innerHTML = d.version === UI_VERSION ? "" :
+      '<div class="panel" id="stale-banner">This page is newer than the server it is talking to, ' +
+      'so some of it will not work. Restart it: <b>bin/ambrosio ui</b></div>';
     render(d);
     $("live").className = "";
     $("live").textContent = "updated " + new Date().toLocaleTimeString();

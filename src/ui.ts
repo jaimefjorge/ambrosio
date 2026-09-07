@@ -6,6 +6,15 @@ import { collectBoard } from "./board.ts";
 import { assignKeys } from "./digest.ts";
 import * as queue from "./queue.ts";
 import { readTranscript, type Event } from "./transcript.ts";
+import { applyAnswer } from "./dispatch.ts";
+
+/**
+ * Bumped whenever the API changes. The page carries the same constant and says
+ * so when they disagree: `Bun.serve` re-reads the HTML from disk on every
+ * request but keeps its routes in memory, so an old server can otherwise serve
+ * a new page and fail in ways that look like missing data.
+ */
+export const UI_VERSION = "2";
 
 export type UiWorker = {
   id?: string;
@@ -149,8 +158,29 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
   const server = Bun.serve({
     port,
     hostname: "127.0.0.1",
-    fetch(req) {
+    async fetch(req) {
       const url = new URL(req.url);
+
+      // Local-only, but a page on the open internet can still POST to
+      // 127.0.0.1. Require a header no cross-origin form can set without a
+      // preflight, and refuse any Origin that is not this server.
+      if (req.method === "POST") {
+        const origin = req.headers.get("origin");
+        if (req.headers.get("x-ambrosio") !== "1" || (origin && origin !== url.origin)) {
+          return Response.json({ error: "refused" }, { status: 403 });
+        }
+      }
+
+      if (url.pathname === "/api/answer" && req.method === "POST") {
+        try {
+          const { qid, text } = (await req.json()) as { qid?: string; text?: string };
+          if (!qid || !text?.trim()) return Response.json({ error: "qid and text are required" }, { status: 400 });
+          const r = applyAnswer(cfg, qid, text.trim());
+          return Response.json({ ok: true, ...r });
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 400 });
+        }
+      }
 
       const worker = url.pathname.match(/^\/api\/worker\/(.+)$/);
       if (worker) {
@@ -166,7 +196,7 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
       if (url.pathname === "/api/board") {
         try {
           const payload = buildPayload(cfg, collectBoard(cfg));
-          return Response.json(payload);
+          return Response.json({ ...payload, version: UI_VERSION });
         } catch (e) {
           // The view must say what broke rather than showing an empty, calm board.
           return Response.json({ error: (e as Error).message }, { status: 500 });

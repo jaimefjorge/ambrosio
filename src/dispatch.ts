@@ -6,6 +6,7 @@ import * as tracker from "./tracker.ts";
 import type { Ticket } from "./tracker.ts";
 import * as agents from "./agents.ts";
 import * as journal from "./journal.ts";
+import * as queue from "./queue.ts";
 
 export class DispatchError extends Error {}
 
@@ -110,6 +111,29 @@ export function dispatchTicket(
   journal.append(cfg.homeDir, `dispatched ${repo.name} ${ticket.id} (${ticket.title}) as session ${result.id}`);
 
   return { ...result, promptPath };
+}
+
+/**
+ * Record Jaime's answer and get it to the worker.
+ *
+ * The CLI, the watcher and the fleet view all answer questions, and all three
+ * must do it identically: record it, deliver it, and only mark it delivered if
+ * the worker actually took it.
+ */
+export function applyAnswer(
+  cfg: AmbrosioConfig,
+  qid: string,
+  text: string,
+  deliver: typeof deliverAnswer = deliverAnswer,
+): { qid: string; ticket: string; repo: string; delivery: "resumed" | "deferred" } {
+  const item = queue.get(cfg.homeDir, qid);
+  if (!item) throw new DispatchError(`no such question: ${qid}`);
+
+  queue.answer(cfg.homeDir, qid, text);
+  const delivery = deliver(cfg, { ticket: item.ticket, repo: item.repo, sessionId: item.sessionId, text });
+  if (delivery === "resumed") queue.markDelivered(cfg.homeDir, qid);
+
+  return { qid, ticket: item.ticket, repo: item.repo, delivery };
 }
 
 /**
