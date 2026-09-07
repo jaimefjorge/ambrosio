@@ -165,3 +165,23 @@ test("onePass sends after routing, so a reply just handled is reflected in what 
   });
   expect(order).toEqual(["answered", "notified"]);
 });
+
+describe("asking Ambrosio a question from the phone", () => {
+  test("a question is answered, not escalated into silence", () => {
+    const asked: string[] = [];
+    const { deps, log } = spyDeps([msg("why is gmc-4or still running?")], {
+      answerQuestion: (_c, q) => asked.push(q),
+    });
+    const handled = drain(cfg, deps);
+
+    expect(asked).toEqual(["why is gmc-4or still running?"]);
+    expect(log).not.toContain("wake");
+    expect(handled[0].actions[0]).toMatchObject({ kind: "answered_question" });
+  });
+
+  test("something that is neither a decision nor a question still wakes the manager", () => {
+    const { deps, log } = spyDeps([msg("do the thing we discussed")], { answerQuestion: () => {} });
+    drain(cfg, deps);
+    expect(log).toContain("wake");
+  });
+});

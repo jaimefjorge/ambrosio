@@ -7,6 +7,7 @@ export type Action =
   | { kind: "status" }
   | { kind: "parked"; ticket: string; stopped: boolean }
   | { kind: "decided"; ticket: string; outcome: string }
+  | { kind: "answered_question" }
   | { kind: "escalated"; why: string }
   | { kind: "failed"; why: string };
 
@@ -26,6 +27,8 @@ export type WatchDeps = {
   transition: (cfg: AmbrosioConfig, repo: string, ticket: string, status: string, note: string) => void;
   stopWorker: (ticket: string) => void;
   decide: (cfg: AmbrosioConfig, d: Decision) => { ticket: string; outcome: string };
+  /** Answer a question Jaime texted, and text the answer back. */
+  answerQuestion?: (cfg: AmbrosioConfig, question: string) => void;
   wake: (cfg: AmbrosioConfig) => void;
   /** Retry answers recorded while their worker was mid-turn. */
   deliverHeld?: (cfg: AmbrosioConfig) => { qid: string; ticket: string; repo: string }[];
@@ -80,6 +83,16 @@ export function routeReply(cfg: AmbrosioConfig, reply: Reply, snap: Snapshot, de
         : reply.kind === "accept" ? "accept" : "reject";
       const r = deps.decide(cfg, { kind, ticket: t.id, repo: t.repo ?? "", note: reply.note });
       return { kind: "decided", ticket: r.ticket, outcome: r.outcome };
+    }
+
+    case "unparsed": {
+      // Not a decision. If it reads like a question, answer it rather than
+      // waking a session and leaving him with silence.
+      if (deps.answerQuestion && looksLikeAQuestion(reply.text)) {
+        deps.answerQuestion(cfg, reply.text);
+        return { kind: "answered_question" };
+      }
+      return { kind: "escalated", why: "not something I could parse" };
     }
 
     default:
@@ -139,9 +152,10 @@ import { collectBoard } from "./board.ts";
 import { notifyPass, realNotifyDeps, hourKey } from "./notify.ts";
 import { isAfterHours, afterHoursPass, type NightDeps } from "./afterhours.ts";
 import { dispatchTicket } from "./dispatch.ts";
-import { assignKeys, renderDigest } from "./digest.ts";
+import { assignKeys, chunk, renderDigest } from "./digest.ts";
 import { applyAnswer, deliverHeldAnswers } from "./dispatch.ts";
 import { applyDecision, deliverPendingFeedback, type Decision } from "./decide.ts";
+import { ask, looksLikeAQuestion } from "./ask.ts";
 
 /** A woken manager costs a session, so never storm it. */
 const WAKE_COOLDOWN_MS = 60_000;
@@ -189,6 +203,11 @@ export function realDeps(): WatchDeps {
     },
 
     decide: (cfg, d) => applyDecision(cfg, d),
+
+    answerQuestion: (cfg, question) => {
+      const r = ask(cfg, question);
+      imessage.sendAll(cfg, chunk(r.answer));
+    },
 
     // The real world lives here, so a caller that builds its own deps — a test,
     // say — cannot reach it by forgetting a field.

@@ -85,3 +85,30 @@ test("WIP limit gates dispatch", () => {
   const quiet = collectBoard(c, new Date(), deps([t({})], []));
   expect(canDispatch(c, quiet)).toBe(true);
 });
+
+// --- A worker that has quietly stopped --------------------------------------
+// `working` hides a dead session: it looks healthy, holds a WIP slot, and makes
+// deliverAnswer refuse to hand over Jaime's decisions.
+
+const NOW = new Date("2026-09-08T15:30:00Z");
+const working = (o: Partial<Agent> = {}) => a({ name: "gmc-4or", state: "working", sessionId: "s", ...o });
+
+test("a working session that has emitted nothing for hours is flagged", () => {
+  const silent = new Date("2026-09-08T12:00:00Z");
+  const out = detectAnomalies(cfg(), [], [working()], [], () => silent, NOW);
+  expect(out.join(" ")).toContain("marked working but has done nothing for 3h30");
+  expect(out.join(" ")).toContain("answers for it are being held");
+});
+
+test("a short pause is not an anomaly — workers think", () => {
+  expect(detectAnomalies(cfg(), [], [working()], [], () => new Date("2026-09-08T15:20:00Z"), NOW)).toEqual([]);
+});
+
+test("a session with no transcript yet is not accused of stalling", () => {
+  expect(detectAnomalies(cfg(), [], [working()], [], () => null, NOW)).toEqual([]);
+});
+
+test("a blocked session is waiting on Jaime, not stalled", () => {
+  const silent = new Date("2026-09-08T09:00:00Z");
+  expect(detectAnomalies(cfg(), [], [working({ state: "blocked" })], [], () => silent, NOW)).toEqual([]);
+});

@@ -10,6 +10,7 @@ import { applyAnswer } from "./dispatch.ts";
 import { applyDecision, type Decision } from "./decide.ts";
 import { buildBrief, realMorningDeps } from "./morning.ts";
 import { readFocus, setFocus } from "./today.ts";
+import { ask } from "./ask.ts";
 import * as journal from "./journal.ts";
 import { dispatchTicket } from "./dispatch.ts";
 import { canDispatch, wipUsed } from "./board.ts";
@@ -249,6 +250,15 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
           return Response.json({ ok: true, dispatched, refused });
         } catch (e) {
           return Response.json({ error: (e as Error).message }, { status: 400 });
+        }
+      }
+
+      if (url.pathname === "/api/ask" && req.method === "POST") {
+        try {
+          const { question, ticket } = (await req.json()) as { question?: string; ticket?: string };
+          return Response.json(ask(cfg, question ?? "", { ticket }));
+        } catch (e) {
+          return Response.json({ ok: false, answer: (e as Error).message }, { status: 400 });
         }
       }
 

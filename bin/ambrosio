@@ -16,6 +16,7 @@ import { runWatch } from "../src/watch.ts";
 import { serve } from "../src/ui.ts";
 import { buildBrief, realMorningDeps } from "../src/morning.ts";
 import { readFocus, setFocus } from "../src/today.ts";
+import { ask } from "../src/ask.ts";
 import { parseReplies } from "../src/replies.ts";
 import { collectBoard, canDispatch, wipUsed } from "../src/board.ts";
 import { renderDigest, renderUrgent, hasDecisions, assignKeys } from "../src/digest.ts";
@@ -80,6 +81,7 @@ const HELP = `ambrosio — manager for Claude Code workers
   tick [--send]                one manager cycle: route, detect, dispatch, digest
   today <repo…> [-- <mission>] set what today is for; no args prints it
   morning [--json]             the morning brief, scoped to today's projects
+  ask <question...>            ask Ambrosio about the work (--ticket <id> to scope it)
   journal                      today's decisions
 `;
 
@@ -385,6 +387,17 @@ switch (cmd) {
     if (brief.inFlight.length) lines.push("", "ALREADY RUNNING", ...brief.inFlight.map((t) => `  [${t.repo} ${t.id}] ${t.title.slice(0, 70)}`));
     lines.push("", "SOURCES", ...brief.sources.map((s2) => `  ${s2.ok ? "ok  " : "!!  "}${s2.name}: ${s2.detail.slice(0, 80)}`));
     out(lines.join("\n"));
+    break;
+  }
+
+  case "ask": {
+    const c = cfg();
+    const ticket = argv.find((a) => a.startsWith("--ticket="))?.split("=")[1];
+    const question = args.join(" ");
+    if (!question) die('usage: ambrosio ask "<question>" [--ticket=<id>]');
+    const r = ask(c, question, { ticket });
+    out(r.answer);
+    if (!r.ok) process.exit(1);
     break;
   }
 

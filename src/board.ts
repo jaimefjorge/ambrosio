@@ -4,6 +4,7 @@ import type { Ticket } from "./tracker.ts";
 import * as agents from "./agents.ts";
 import type { Agent } from "./agents.ts";
 import * as queue from "./queue.ts";
+import { lastActivityAt } from "./transcript.ts";
 import type { BoardState } from "./digest.ts";
 
 export type Deps = {
@@ -80,16 +81,30 @@ export function collectBoard(cfg: AmbrosioConfig, now = new Date(), deps: Deps =
 }
 
 /** Things that are wrong and a human would want named. */
+/** A session that has emitted nothing for this long is not really working. */
+export const SILENT_MINUTES = 45;
+
 export function detectAnomalies(
   cfg: AmbrosioConfig,
   tickets: Ticket[],
   workers: Agent[],
   questions: queue.QueueItem[],
+  lastActivity: (a: Agent) => Date | null = (a) => (a.sessionId ? lastActivityAt(a.sessionId, a.cwd) : null),
+  now: Date = new Date(),
 ): string[] {
   const out: string[] = [];
 
   for (const a of workers) {
     if (a.state === "failed") out.push(`${a.name ?? a.id} failed: ${a.detail ?? "no detail"}`);
+    // A stale `working` flag is worse than a crash: it looks healthy, and it
+    // holds a WIP slot while quietly blocking every answer bound for it.
+    if (a.state === "working") {
+      const last = lastActivity(a);
+      const mins = last ? Math.round((now.getTime() - last.getTime()) / 60000) : null;
+      if (mins !== null && mins >= SILENT_MINUTES) {
+        out.push(`${a.name ?? a.id} is marked working but has done nothing for ${mins < 120 ? `${mins}m` : `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`} — answers for it are being held`);
+      }
+    }
     if (a.state === "stopped" && a.name && tickets.some((t) => t.id === a.name && (tracker.ACTIVE_STATUSES as readonly string[]).includes(t.status))) {
       out.push(`${a.name} stopped while its ticket is still active`);
     }

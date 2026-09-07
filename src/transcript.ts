@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -105,6 +105,25 @@ export function findTranscript(sessionId: string, cwd?: string): string | null {
     if (existsSync(f)) return f;
   }
   return null;
+}
+
+/**
+ * When a session last did anything, from its transcript's mtime.
+ *
+ * Costs one stat, so it is cheap enough for every board read, where parsing a
+ * transcript of hundreds of kilobytes would not be. The file is also touched by
+ * bookkeeping entries, not only by real output, so this errs towards saying a
+ * session is alive — which is the safe direction for something that raises an
+ * alarm.
+ */
+export function lastActivityAt(sessionId: string, cwd?: string): Date | null {
+  const file = findTranscript(sessionId, cwd);
+  if (!file) return null;
+  try {
+    return statSync(file).mtime;
+  } catch {
+    return null;
+  }
 }
 
 export function readTranscript(sessionId: string, cwd?: string, limit = 60): Event[] {
