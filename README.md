@@ -70,7 +70,7 @@ Ambrosio is a thin layer over them rather than another control plane.
 | `.claude/skills/` | `ambrosio-plan-day`, `ambrosio-tick`, `ambrosio-wrap-up` -- the manager's three routines. |
 | `worker/prompt.md` | The contract every worker runs under: plan, implement, verify with evidence, hand over. Never merge, never close a ticket. |
 | `worker/hooks/` | Guards that park questions instead of blocking, turn unattended permission prompts into queue items, and refuse pushes to main. |
-| `bin/ambrosio` | The CLI: `start` (the fleet view and the watcher together), `status`, `dispatch`, `queue`, `answer`, `digest`, `inbox`, `tick`, `setup`. |
+| `bin/ambrosio` | The CLI: `start` (the fleet view and the watcher together), `morning`, `status`, `dispatch`, `queue`, `answer`, `digest`, `inbox`, `tick`, `setup`. |
 | `src/` | Tracker (Beads), sessions, question queue, digest renderer, reply grammar, inbound reader, notification policy, per-ticket memory. |
 
 Tickets live in [Beads](https://github.com/gastownhall/beads) per repo. Quality is
@@ -88,7 +88,8 @@ what is not.
 ```sh
 bin/ambrosio setup     # generates machine-local config, initializes Beads
 bin/ambrosio start     # fleet view on :4317 + the watcher, one process
-bun test               # 160 tests
+bin/ambrosio morning   # the brief: carryover, PRs, Linear, what is ready
+bun test               # 179 tests
 ```
 
 ---

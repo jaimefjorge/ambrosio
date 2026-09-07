@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { rootDir } from "../src/config.ts";
 
 const HOOKS = join(rootDir(), "worker", "hooks");
+/** Each case spawns bash, jq and shasum; 5s is not enough on a busy machine. */
+const HOOK_TIMEOUT = 60_000;
 let home: string;
 
 beforeEach(() => {
@@ -58,14 +60,14 @@ test("ask-guard denies and records the question with its options", () => {
   expect(entry.questions[0].question).toContain("legacy token");
   expect(entry.questions[0].options.map((o: any) => o.label)).toEqual(["Keep behind a flag", "Remove now"]);
   expect(entry.urgent).toBe(false);
-});
+}, HOOK_TIMEOUT);
 
 test("ask-guard dedupes an identical question into one entry", () => {
   run("ask-guard.sh", askPayload(), { AMBROSIO_TICKET: "tt-1" });
   const second = run("ask-guard.sh", askPayload(), { AMBROSIO_TICKET: "tt-1" });
   expect(queueFiles().length).toBe(1);
   expect(JSON.parse(second.out).hookSpecificOutput.permissionDecisionReason).toContain("Already recorded");
-});
+}, HOOK_TIMEOUT);
 
 test("ask-guard flags genuinely risky questions as urgent", () => {
   for (const q of [
@@ -78,7 +80,7 @@ test("ask-guard flags genuinely risky questions as urgent", () => {
     const entry = JSON.parse(readFileSync(join(home, "queue", queueFiles()[0]), "utf8"));
     expect(entry.urgent).toBe(true);
   }
-});
+}, HOOK_TIMEOUT);
 
 test("ask-guard leaves ordinary engineering questions non-urgent", () => {
   for (const q of [
@@ -92,7 +94,7 @@ test("ask-guard leaves ordinary engineering questions non-urgent", () => {
     const entry = JSON.parse(readFileSync(join(home, "queue", queueFiles()[0]), "utf8"));
     expect(entry.urgent).toBe(false);
   }
-});
+}, HOOK_TIMEOUT);
 
 test("ask-guard survives a malformed payload and still denies", () => {
   const r = spawnSync("bash", [join(HOOKS, "ask-guard.sh")], {
@@ -102,7 +104,7 @@ test("ask-guard survives a malformed payload and still denies", () => {
   });
   expect(r.status).toBe(0);
   expect(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision).toBe("deny");
-});
+}, HOOK_TIMEOUT);
 
 test("permission-guard records an urgent entry and denies", () => {
   const r = run("permission-guard.sh", {
@@ -115,7 +117,7 @@ test("permission-guard records an urgent entry and denies", () => {
   expect(entry.kind).toBe("permission");
   expect(entry.urgent).toBe(true);
   expect(entry.tool).toBe("Bash");
-});
+}, HOOK_TIMEOUT);
 
 const bash = (command: string) => ({ tool_name: "Bash", tool_input: { command } });
 
@@ -132,7 +134,7 @@ test("bash-guard blocks pushes to main, force pushes and --no-verify", () => {
     expect(r.out.length).toBeGreaterThan(0);
     expect(JSON.parse(r.out).hookSpecificOutput.permissionDecision).toBe("deny");
   }
-});
+}, HOOK_TIMEOUT);
 
 test("bash-guard allows ordinary commands", () => {
   for (const cmd of [
@@ -146,7 +148,7 @@ test("bash-guard allows ordinary commands", () => {
     expect(r.status).toBe(0);
     expect(r.out.trim()).toBe("");
   }
-});
+}, HOOK_TIMEOUT);
 
 // --- Ticket attribution -----------------------------------------------------
 // A background session can inherit AMBROSIO_TICKET from an earlier spawn, which
@@ -173,7 +175,7 @@ test("ask-guard files the question against the session's real ticket, not a stal
 
   expect(r.status).toBe(0);
   expect(queued()).toMatchObject({ ticket: "gmc-gfh", repo: "gatemd" });
-});
+}, HOOK_TIMEOUT);
 
 test("ask-guard falls back to the worktree path when there is no session record", () => {
   mkdirSync(join(home, "work", "gatemd", "gmc-gfh"), { recursive: true });
@@ -181,14 +183,14 @@ test("ask-guard falls back to the worktree path when there is no session record"
     { AMBROSIO_TICKET: "gmc-4or", AMBROSIO_REPO: "wrong-repo" });
 
   expect(queued()).toMatchObject({ ticket: "gmc-gfh", repo: "gatemd" });
-});
+}, HOOK_TIMEOUT);
 
 test("ask-guard still uses the env var when nothing better is known", () => {
   run("ask-guard.sh", { ...askPayload(), session_id: "unknown-sess", cwd: "/tmp/nowhere" },
     { AMBROSIO_TICKET: "gmc-4or", AMBROSIO_REPO: "gatemd" });
 
   expect(queued()).toMatchObject({ ticket: "gmc-4or", repo: "gatemd" });
-});
+}, HOOK_TIMEOUT);
 
 test("two workers asking the same question get separate entries, not one merged one", () => {
   // The dedupe hash keys on the ticket, so a wrong ticket used to collapse
@@ -202,7 +204,7 @@ test("two workers asking the same question get separate entries, not one merged 
     .map((f) => JSON.parse(readFileSync(join(home, "queue", f), "utf8")).ticket)
     .sort();
   expect(tickets).toEqual(["gmc-4or", "gmc-gfh"]);
-});
+}, HOOK_TIMEOUT);
 
 test("permission-guard resolves the ticket the same way", () => {
   withSession("gatemd", "gmc-gfh", "sess-real");
@@ -210,4 +212,4 @@ test("permission-guard resolves the ticket the same way", () => {
     { AMBROSIO_TICKET: "gmc-4or", AMBROSIO_REPO: "wrong-repo" });
 
   expect(queued()).toMatchObject({ ticket: "gmc-gfh", repo: "gatemd", kind: "permission", urgent: true });
-});
+}, HOOK_TIMEOUT);

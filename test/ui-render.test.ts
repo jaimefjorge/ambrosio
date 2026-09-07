@@ -13,7 +13,8 @@ import { rootDir } from "../src/config.ts";
  */
 function renderPage(payload: any): Record<string, string> {
   const html = readFileSync(join(rootDir(), "ui", "index.html"), "utf8");
-  const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1];
+  const butler = readFileSync(join(rootDir(), "ui", "butler.js"), "utf8");
+  const script = butler + "\n" + /<script>([\s\S]*?)<\/script>/.exec(html)![1];
 
   const nodes: Record<string, any> = {};
   const node = (id: string) => (nodes[id] ??= {
@@ -40,7 +41,7 @@ function renderPage(payload: any): Record<string, string> {
 
   const fn = new Function(
     ...Object.keys(stubs),
-    `${script}\nreturn { render, setMood };`,
+    `${script}\nreturn { render, setMood: butler.setMoodFromBoard };`,
   );
   const api = fn(...Object.values(stubs));
   api.render(payload);

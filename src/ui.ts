@@ -8,6 +8,9 @@ import * as queue from "./queue.ts";
 import { readTranscript, type Event } from "./transcript.ts";
 import { applyAnswer } from "./dispatch.ts";
 import { applyDecision, type Decision } from "./decide.ts";
+import { buildBrief, realMorningDeps } from "./morning.ts";
+import { dispatchTicket } from "./dispatch.ts";
+import { canDispatch, wipUsed } from "./board.ts";
 
 /**
  * Bumped whenever the API changes. The page carries the same constant and says
@@ -15,7 +18,7 @@ import { applyDecision, type Decision } from "./decide.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "3";
+export const UI_VERSION = "4";
 
 export type UiWorker = {
   id?: string;
@@ -182,6 +185,37 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
         }
       }
 
+      if (url.pathname === "/api/morning") {
+        try {
+          return Response.json({ ...buildBrief(cfg, realMorningDeps()), version: UI_VERSION });
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 500 });
+        }
+      }
+
+      if (url.pathname === "/api/dispatch" && req.method === "POST") {
+        try {
+          const { tickets } = (await req.json()) as { tickets?: { repo: string; ticket: string }[] };
+          if (!tickets?.length) return Response.json({ error: "no tickets given" }, { status: 400 });
+
+          const dispatched: { repo: string; ticket: string; id: string }[] = [];
+          const refused: { ticket: string; why: string }[] = [];
+          for (const t of tickets) {
+            try {
+              // dispatchTicket enforces the WIP limit itself; report what it says
+              // rather than deciding here and getting the two out of step.
+              const r = dispatchTicket(cfg, t.repo, t.ticket);
+              dispatched.push({ ...t, id: r.id });
+            } catch (e) {
+              refused.push({ ticket: t.ticket, why: (e as Error).message });
+            }
+          }
+          return Response.json({ ok: true, dispatched, refused });
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 400 });
+        }
+      }
+
       if (url.pathname === "/api/decide" && req.method === "POST") {
         try {
           const body = (await req.json()) as Partial<Decision>;
@@ -226,8 +260,15 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
         }
       }
 
-      if (url.pathname === "/") {
-        return new Response(readFileSync(page, "utf8"), {
+      if (url.pathname === "/butler.js") {
+        return new Response(readFileSync(join(cfg.rootDir, "ui", "butler.js"), "utf8"), {
+          headers: { "content-type": "text/javascript; charset=utf-8" },
+        });
+      }
+
+      if (url.pathname === "/" || url.pathname === "/morning") {
+        const file = url.pathname === "/morning" ? join(cfg.rootDir, "ui", "morning.html") : page;
+        return new Response(readFileSync(file, "utf8"), {
           headers: { "content-type": "text/html; charset=utf-8" },
         });
       }

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as tracker from "../src/tracker.ts";
 import type { RepoConfig } from "../src/config.ts";
+/** These shell out to `bd`, which starts an embedded Dolt and is slow under load. */
+const BD_TIMEOUT = 60_000;
 
 let dir: string;
 let repo: RepoConfig;
@@ -26,7 +28,7 @@ afterAll(() => {
 
 test("initRepo is idempotent", () => {
   expect(tracker.initRepo(repo).initialized).toBe(false);
-});
+}, BD_TIMEOUT);
 
 test("create returns a ticket with an id and acceptance criteria", () => {
   const t = tracker.create(repo, {
@@ -41,7 +43,7 @@ test("create returns a ticket with an id and acceptance criteria", () => {
   expect(t.acceptance_criteria).toContain("renders dark");
   expect(t.external_ref).toBe("LIN-42");
   expect(t.repo).toBe("t");
-});
+}, BD_TIMEOUT);
 
 test("transition moves through the custom statuses and list filters by them", () => {
   const t = tracker.create(repo, { title: "Ticket two" });
@@ -54,14 +56,14 @@ test("transition moves through the custom statuses and list filters by them", ()
 
   const cs = tracker.comments(repo, t.id);
   expect(cs.some((c) => c.text.includes("plan ready"))).toBe(true);
-});
+}, BD_TIMEOUT);
 
 test("get unwraps the array bd show returns", () => {
   const t = tracker.create(repo, { title: "Ticket three" });
   const got = tracker.get(repo, t.id);
   expect(Array.isArray(got)).toBe(false);
   expect(got.title).toBe("Ticket three");
-});
+}, BD_TIMEOUT);
 
 test("setMeta merges metadata and close records the reason", () => {
   const t = tracker.create(repo, { title: "Ticket four", metadata: { a: "1" } });
@@ -72,7 +74,7 @@ test("setMeta merges metadata and close records the reason", () => {
 
   tracker.close(repo, t.id, "accepted: PR #7");
   expect(tracker.get(repo, t.id).status).toBe("closed");
-});
+}, BD_TIMEOUT);
 
 test("unknown ticket raises a TrackerError naming the command", () => {
   try {
@@ -81,4 +83,4 @@ test("unknown ticket raises a TrackerError naming the command", () => {
   } catch (e) {
     expect(e).toBeInstanceOf(tracker.TrackerError);
   }
-});
+}, BD_TIMEOUT);

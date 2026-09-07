@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ambrosio — this morning</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f6f3; --panel: #fff; --line: #e4e2dc; --ink: #1a1a18; --dim: #6b6b64;
+    --gold: #b8892b; --green: #1f7a4d; --amber: #b3730a; --red: #b02b2b;
+    --dawn: linear-gradient(180deg, #fdf3e3 0%, #f7f6f3 62%);
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14140f; --panel: #1c1c18; --line: #2e2e28; --ink: #eceae2; --dim: #918f84;
+      --gold: #e2ad35; --green: #5fc38a; --amber: #e0a83c; --red: #e5706b;
+      --dawn: linear-gradient(180deg, #241d12 0%, #14140f 62%);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.6 var(--mono); }
+  .dawn { background: var(--dawn); padding: 40px 20px 28px; }
+  .wrap { max-width: 860px; margin-inline: auto; }
+
+  .hello { display: flex; align-items: center; gap: 20px; }
+  #brief-canvas { image-rendering: pixelated; width: 144px; height: 90px; flex: none; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -.01em; font-weight: 600; }
+  .sub { color: var(--dim); font-size: 13px; }
+  .slots { margin-top: 10px; font-size: 13px; }
+  .slots b { color: var(--green); }
+
+  main { padding: 4px 20px 80px; }
+  h2 { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
+       margin: 30px 0 10px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
+  h2 .n { color: var(--ink); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .row { padding: 11px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 11px; align-items: flex-start; }
+  .row:last-child { border-bottom: 0; }
+  .row.pick { cursor: pointer; }
+  .row.pick:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+  .row.on { background: color-mix(in srgb, var(--gold) 12%, transparent); }
+  .box { flex: none; width: 13px; height: 13px; border: 1px solid var(--dim); border-radius: 3px; margin-top: 4px; }
+  .row.on .box { background: var(--gold); border-color: var(--gold); }
+  .body { min-width: 0; flex: 1; }
+  .meta { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .tag { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; padding: 2px 6px;
+         border: 1px solid var(--line); border-radius: 3px; color: var(--dim); flex: none; }
+  .tag.bad { color: var(--red); border-color: var(--red); }
+  .tag.good { color: var(--green); border-color: var(--green); }
+  .tag.warn { color: var(--amber); border-color: var(--amber); }
+  a { color: inherit; }
+
+  .quiet { padding: 22px 14px; color: var(--dim); text-align: center; }
+  .key { font-weight: 700; color: var(--gold); }
+
+  #bar {
+    position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel);
+    border-top: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 14px;
+  }
+  #bar .wrap { display: flex; align-items: center; gap: 14px; width: 100%; }
+  #count { color: var(--dim); font-size: 13px; }
+  button {
+    font: inherit; font-size: 13px; padding: 8px 18px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--gold); background: var(--gold); color: #1a1a18; font-weight: 600;
+  }
+  button[disabled] { opacity: .4; cursor: default; }
+  button.ghost { background: none; color: var(--ink); border-color: var(--line); font-weight: 400; }
+  #said { margin-left: auto; font-size: 12px; color: var(--green); }
+  #said.bad { color: var(--red); }
+
+  .sources { margin-top: 34px; font-size: 11px; color: var(--dim); display: flex; flex-wrap: wrap; gap: 14px; }
+  .sources i { font-style: normal; }
+  .sources .off { color: var(--amber); }
+</style>
+</head>
+<body>
+<div class="dawn"><div class="wrap hello">
+  <canvas id="brief-canvas" width="48" height="30"></canvas>
+  <div>
+    <h1 id="greeting">…</h1>
+    <div class="sub" id="date"></div>
+    <div class="slots" id="slots"></div>
+  </div>
+</div></div>
+
+<main class="wrap" id="brief"></main>
+
+<div id="bar"><div class="wrap">
+  <button id="begin" disabled>Begin the day</button>
+  <button class="ghost" id="clear">Clear</button>
+  <span id="count">nothing chosen</span>
+  <a href="/" style="margin-left:auto;font-size:12px;color:var(--dim)">the fleet →</a>
+  <span id="said"></span>
+</div></div>
+
+<script src="/butler.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const chosen = new Set();
+let brief = null;
+
+const butler = createButler($("brief-canvas"), {
+  screen: $("brief-canvas"),
+  onMood: () => {},
+});
+
+function tag(text, cls = "") { return `<span class="tag ${cls}">${esc(text)}</span>`; }
+
+function section(title, n, inner) {
+  return n === 0 ? "" : `<h2>${esc(title)} <span class="n">${n}</span></h2><div class="panel">${inner}</div>`;
+}
+
+function render(b) {
+  brief = b;
+  $("greeting").textContent = b.greeting;
+  $("date").textContent = new Date(b.date).toDateString();
+  const c = b.capacity;
+  $("slots").innerHTML = c.free > 0
+    ? `<b>${c.free}</b> of ${c.limit} slots free. ${c.used ? `${c.used} already running.` : "Nothing running yet."}`
+    : `All ${c.limit} slots are busy. Nothing new until one finishes.`;
+
+  const parts = [];
+
+  parts.push(section("Waiting on you", b.waiting.length, b.waiting.map((w) => `
+    <div class="row">
+      <div class="body"><span class="key">${esc(w.key)}</span> ${esc(w.title)}
+        <div class="meta">${esc(w.repo)} ${esc(w.id)}</div></div>
+      ${tag(w.kind, w.kind === "question" ? "warn" : "")}
+    </div>`).join("")));
+
+  parts.push(section("Carried over", b.carryover.length, b.carryover.map((x) => `
+    <div class="row">
+      <div class="body">${esc(x.text)}<div class="meta">yesterday ${esc(x.at)}</div></div>
+      ${tag(x.kind, x.kind === "DEFECT" ? "bad" : "")}
+    </div>`).join("")));
+
+  const prTag = (f) => f === "checks failing" || f === "changes requested" ? "bad"
+                     : f === "ready to merge" ? "good" : f === "draft" ? "" : "warn";
+  parts.push(section("Pull requests", b.prs.length, b.prs.map((p) => `
+    <div class="row">
+      <div class="body"><a href="${esc(p.url)}" target="_blank">${esc(p.title)}</a>
+        <div class="meta">${esc(p.repo)} #${p.number}</div></div>
+      ${tag(p.flag, prTag(p.flag))}
+    </div>`).join("")));
+
+  const linear = b.sources.find((s) => s.name === "Linear");
+  parts.push(section("Linear", b.linear.length, b.linear.map((i) => `
+    <div class="row">
+      <div class="body"><a href="${esc(i.url)}" target="_blank">${esc(i.title)}</a>
+        <div class="meta">${esc(i.identifier)}</div></div>
+      ${tag(i.state)}
+    </div>`).join("")));
+  if (linear && !linear.ok) {
+    parts.push(`<h2>Linear</h2><div class="panel"><div class="quiet">${esc(linear.detail)}</div></div>`);
+  }
+
+  parts.push(section("Ready to start", b.ready.length, b.ready.map((t) => `
+    <div class="row pick ${chosen.has(t.repo + "/" + t.id) ? "on" : ""}" data-repo="${esc(t.repo)}" data-id="${esc(t.id)}">
+      <div class="box"></div>
+      <div class="body">${esc(t.title)}<div class="meta">${esc(t.repo)} ${esc(t.id)}</div></div>
+    </div>`).join("")));
+
+  parts.push(section("Already running", b.inFlight.length, b.inFlight.map((t) => `
+    <div class="row">
+      <div class="body">${esc(t.title)}<div class="meta">${esc(t.repo)} ${esc(t.id)}</div></div>
+      ${tag(t.status)}
+    </div>`).join("")));
+
+  const nothing = !b.waiting.length && !b.carryover.length && !b.prs.length && !b.ready.length && !b.inFlight.length;
+  if (nothing) parts.push('<div class="panel"><div class="quiet">Nothing is waiting, sir. Enjoy the quiet.</div></div>');
+
+  parts.push(`<div class="sources">${b.sources.map((s) =>
+    `<i class="${s.ok ? "" : "off"}">${s.ok ? "✓" : "!"} ${esc(s.name)}${s.ok ? "" : " — " + esc(s.detail)}</i>`).join("")}</div>`);
+
+  $("brief").innerHTML = parts.join("");
+  butler.setMood(b.waiting.length ? "attention" : "idle", "");
+  updateBar();
+}
+
+function updateBar() {
+  const free = brief ? brief.capacity.free : 0;
+  const n = chosen.size;
+  $("count").textContent = n === 0 ? "nothing chosen"
+    : `${n} chosen${n > free ? ` — only ${free} slot${free === 1 ? "" : "s"} free, the rest will queue` : ""}`;
+  $("begin").disabled = n === 0;
+  $("begin").textContent = n === 0 ? "Begin the day" : `Begin the day — dispatch ${n}`;
+}
+
+$("brief").addEventListener("click", (e) => {
+  const row = e.target.closest(".row.pick");
+  if (!row) return;
+  const key = row.dataset.repo + "/" + row.dataset.id;
+  chosen.has(key) ? chosen.delete(key) : chosen.add(key);
+  row.classList.toggle("on");
+  updateBar();
+});
+
+$("clear").addEventListener("click", () => { chosen.clear(); render(brief); });
+
+$("begin").addEventListener("click", async () => {
+  $("begin").disabled = true;
+  $("said").className = "";
+  $("said").textContent = "dispatching…";
+  butler.setMood("busy", "");
+  try {
+    const r = await fetch("/api/dispatch", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-ambrosio": "1" },
+      body: JSON.stringify({ tickets: [...chosen].map((k) => ({ repo: k.split("/")[0], ticket: k.slice(k.indexOf("/") + 1) })) }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || "failed");
+    const ok = d.dispatched.length;
+    $("said").textContent = ok
+      ? `${ok} dispatched. ${d.refused.length ? d.refused.length + " held back." : "Have a good day, sir."}`
+      : "None dispatched.";
+    if (d.refused.length) $("said").textContent += " " + d.refused.map((x) => `${x.ticket}: ${x.why}`).join("; ");
+    chosen.clear();
+    load();
+  } catch (e) {
+    $("said").className = "bad";
+    $("said").textContent = "! " + e.message;
+  } finally {
+    $("begin").disabled = false;
+  }
+});
+
+async function load() {
+  try {
+    const r = await fetch("/api/morning");
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    render(d);
+  } catch (e) {
+    $("brief").innerHTML = `<div class="panel"><div class="quiet">Could not read the brief: ${esc(e.message)}</div></div>`;
+  }
+}
+load();
+</script>
+</body>
+</html>

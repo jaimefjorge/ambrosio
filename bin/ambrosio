@@ -14,6 +14,7 @@ import * as imessage from "../src/imessage.ts";
 import * as inbox from "../src/inbox.ts";
 import { runWatch } from "../src/watch.ts";
 import { serve } from "../src/ui.ts";
+import { buildBrief, realMorningDeps } from "../src/morning.ts";
 import { parseReplies } from "../src/replies.ts";
 import { collectBoard, canDispatch, wipUsed } from "../src/board.ts";
 import { renderDigest, renderUrgent, hasDecisions, assignKeys } from "../src/digest.ts";
@@ -76,6 +77,7 @@ const HELP = `ambrosio — manager for Claude Code workers
   watch [--interval <sec>]     route your replies the moment they arrive
   ui [--port <n>]              live fleet view on localhost
   tick [--send]                one manager cycle: route, detect, dispatch, digest
+  morning [--json]             the morning brief: carryover, PRs, Linear, what is ready
   journal                      today's decisions
 `;
 
@@ -341,6 +343,23 @@ switch (cmd) {
       dispatchable: dispatchable.map((t) => ({ repo: t.repo, id: t.id, title: t.title })),
       digest: renderDigest(board),
     });
+    break;
+  }
+
+  case "morning": {
+    const c = cfg();
+    const brief = buildBrief(c, realMorningDeps());
+    if (asJson) { out(brief); break; }
+    const lines: string[] = [`${brief.greeting}  —  ${new Date(brief.date).toDateString()}`, ""];
+    lines.push(`Capacity: ${brief.capacity.free} of ${brief.capacity.limit} slots free`);
+    if (brief.waiting.length) lines.push("", "WAITING ON YOU", ...brief.waiting.map((w) => `  ${w.key} [${w.repo} ${w.id}] ${w.title}`));
+    if (brief.carryover.length) lines.push("", "CARRIED OVER", ...brief.carryover.map((c2) => `  ${c2.at} ${c2.kind}: ${c2.text.slice(0, 90)}`));
+    if (brief.prs.length) lines.push("", "PULL REQUESTS", ...brief.prs.map((p) => `  ${p.flag.padEnd(18)} #${p.number} ${p.title.slice(0, 60)}`));
+    if (brief.linear.length) lines.push("", "LINEAR", ...brief.linear.map((i) => `  ${i.identifier} ${i.title.slice(0, 70)}`));
+    if (brief.ready.length) lines.push("", "READY TO START", ...brief.ready.map((t) => `  [${t.repo} ${t.id}] ${t.title.slice(0, 70)}`));
+    if (brief.inFlight.length) lines.push("", "ALREADY RUNNING", ...brief.inFlight.map((t) => `  [${t.repo} ${t.id}] ${t.title.slice(0, 70)}`));
+    lines.push("", "SOURCES", ...brief.sources.map((s2) => `  ${s2.ok ? "ok  " : "!!  "}${s2.name}: ${s2.detail.slice(0, 80)}`));
+    out(lines.join("\n"));
     break;
   }
 
