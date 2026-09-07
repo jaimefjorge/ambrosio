@@ -1,0 +1,8 @@
+{
+  "name": "ambrosio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Manager layer for supervising Claude Code agents",
+  "scripts": { "test": "bun test" }
+}
