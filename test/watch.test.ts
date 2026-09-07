@@ -185,3 +185,46 @@ describe("asking Ambrosio a question from the phone", () => {
     expect(log).toContain("wake");
   });
 });
+
+// --- Paused means nothing starts and nothing resumes -------------------------
+
+describe("paused", () => {
+  const paused = { ...cfg, homeDir: require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "amb-w-")) } as AmbrosioConfig;
+
+  test("onePass delivers nothing, starts nothing, and hands nothing to the night while paused", async () => {
+    const { pause } = await import("../src/pause.ts");
+    pause(paused.homeDir, "taking stock");
+    const { deps, log } = spyDeps([], {
+      deliverHeld: () => { log.push("deliverHeld"); return [{ qid: "q", ticket: "T-3", repo: "gatemd" }]; },
+      deliverFeedback: () => { log.push("deliverFeedback"); return [{ ticket: "T-3" }]; },
+      night: () => { log.push("night"); return { parked: [], dispatched: ["T-4"] }; },
+      notify: () => { log.push("notify"); return { digest: false, urgent: [] }; },
+    });
+    const r = onePass(paused, deps);
+    expect(log).not.toContain("deliverHeld");
+    expect(log).not.toContain("deliverFeedback");
+    expect(log).not.toContain("night");
+    expect(r.delivered).toEqual([]);
+    expect(r.night.dispatched).toEqual([]);
+    expect(r.paused).toBe(true);
+  });
+
+  test("replies still drain while paused, so 'resume' and 'status' can get through", async () => {
+    const { pause, isPaused } = await import("../src/pause.ts");
+    pause(paused.homeDir, "taking stock");
+    const { deps, log } = spyDeps([msg("status"), msg("resume", 2)]);
+    onePass(paused, deps);
+    expect(log).toContain("digest");
+    expect(isPaused(paused.homeDir)).toBe(false);
+  });
+
+  test("'pause' from Messages sets the flag and says so", async () => {
+    const { isPaused, resume, readPause } = await import("../src/pause.ts");
+    resume(paused.homeDir);
+    const { deps } = spyDeps([msg("pause: back tomorrow")]);
+    const r = onePass(paused, deps);
+    expect(isPaused(paused.homeDir)).toBe(true);
+    expect(readPause(paused.homeDir)?.reason).toBe("back tomorrow");
+    expect(r.handled[0].actions[0]).toEqual({ kind: "paused", reason: "back tomorrow" });
+  });
+});

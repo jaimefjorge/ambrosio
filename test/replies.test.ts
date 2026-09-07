@@ -49,3 +49,9 @@ test("isConversational distinguishes chat from commands", () => {
   expect(isConversational(parseReplies("how is the fleet doing?"))).toBe(true);
   expect(isConversational(parseReplies("Q1 a\nchat too"))).toBe(false);
 });
+
+test("pause and resume are part of the grammar", () => {
+  expect(parseReplies("pause")).toEqual([{ kind: "pause" }]);
+  expect(parseReplies("Pause: back tomorrow")).toEqual([{ kind: "pause", reason: "back tomorrow" }]);
+  expect(parseReplies("resume")).toEqual([{ kind: "resume" }]);
+});

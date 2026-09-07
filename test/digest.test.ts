@@ -117,3 +117,12 @@ test("no stale workers means no stale section", () => {
   const out = renderDigest(board({ working: [{ agent: { kind: "background", cwd: "/x", name: "gmc-gfh" } }] }));
   expect(out.join("\n")).not.toContain("STALE");
 });
+
+test("a paused fleet says so in the headline, before anything else", () => {
+  const out = renderDigest(board({
+    working: [{ agent: { kind: "background", cwd: "/x", name: "gmc-gfh" } }],
+    paused: { since: "2026-09-07T15:58:00.000Z", reason: "taking stock" },
+  }));
+  expect(out[0].split("\n")[0]).toContain("PAUSED");
+  expect(out[0]).toContain("taking stock");
+});

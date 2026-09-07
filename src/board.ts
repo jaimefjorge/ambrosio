@@ -6,6 +6,7 @@ import type { Agent } from "./agents.ts";
 import * as queue from "./queue.ts";
 import { lastActivityAt } from "./transcript.ts";
 import { duration, type BoardState } from "./digest.ts";
+import { readPause } from "./pause.ts";
 
 export type Deps = {
   listTickets: (repo: { name: string; path: string; prefix: string }, statuses?: string[]) => Ticket[];
@@ -91,6 +92,7 @@ export function collectBoard(
     blocked,
     anomalies,
     stale,
+    paused: readPause(cfg.homeDir),
     ready: all.filter((t) => t.status === "open"),
     needsInput,
     all,

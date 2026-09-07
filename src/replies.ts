@@ -13,6 +13,8 @@ export type Reply =
   | { kind: "message"; ticket: string; text: string }
   | { kind: "status" }
   | { kind: "quiet"; until: string }
+  | { kind: "pause"; reason?: string }
+  | { kind: "resume" }
   | { kind: "unparsed"; text: string };
 
 const ANSWER = /^q\s*[-.]?\s*(\d+)\s+([^\s:]+)\s*(?::\s*(.*))?$/i;
@@ -32,6 +34,9 @@ export function parseLine(raw: string): Reply | null {
   if (line === "") return null;
 
   if (/^status$/i.test(line)) return { kind: "status" };
+  const pausem = /^pause(?:\s*:\s*(.+))?$/i.exec(line);
+  if (pausem) return pausem[1] ? { kind: "pause", reason: pausem[1].trim() } : { kind: "pause" };
+  if (/^resume$/i.test(line)) return { kind: "resume" };
   if (/^(board|what'?s up)$/i.test(line)) return { kind: "status" };
 
   const quiet = QUIET.exec(line);

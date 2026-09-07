@@ -65,6 +65,7 @@ export type UiPayload = {
   tickets: { id: string; repo: string; title: string; status: string }[];
   anomalies: string[];
   tokensToday?: number;
+  paused?: { since: string; reason: string } | null;
 };
 
 /** Sessions that still hold a WIP slot. */
@@ -131,6 +132,7 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
     tickets: board.all.map((t) => ({ id: t.id, repo: t.repo ?? "", title: t.title, status: t.status })),
     anomalies: board.anomalies,
     tokensToday: board.tokensToday,
+    paused: board.paused ?? null,
   };
 }
 

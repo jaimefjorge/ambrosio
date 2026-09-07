@@ -1,10 +1,13 @@
 import type { AmbrosioConfig } from "./config.ts";
 import type { InboundMessage } from "./inbox.ts";
 import { parseReplies, type Reply } from "./replies.ts";
+import { isPaused, pause as setPause, resume as clearPause } from "./pause.ts";
 
 export type Action =
   | { kind: "answered"; qid: string; ticket: string; delivery: "resumed" | "deferred" }
   | { kind: "status" }
+  | { kind: "paused"; reason: string }
+  | { kind: "resumed" }
   | { kind: "parked"; ticket: string; stopped: boolean }
   | { kind: "decided"; ticket: string; outcome: string }
   | { kind: "answered_question" }
@@ -58,6 +61,14 @@ export function routeReply(cfg: AmbrosioConfig, reply: Reply, snap: Snapshot, de
       return { kind: "answered", qid: q.qid, ticket: q.ticket, delivery };
     }
 
+    case "pause": {
+      setPause(cfg.homeDir, reply.reason ?? "paused from Messages");
+      return { kind: "paused", reason: reply.reason ?? "paused from Messages" };
+    }
+    case "resume": {
+      clearPause(cfg.homeDir);
+      return { kind: "resumed" };
+    }
     case "status":
       deps.sendDigest(cfg);
       return { kind: "status" };
@@ -246,19 +257,24 @@ export function onePass(
   notified: { digest: boolean; urgent: string[]; reviewAsked?: boolean };
   feedback: { ticket: string }[];
   night: { parked: string[]; dispatched: string[] };
+  paused: boolean;
 } {
-  const delivered = deps.deliverHeld?.(cfg) ?? [];
+  // While paused, nothing reaches a worker and nothing starts. Replies still
+  // drain, because `resume` is one of them. Checked once per pass: a `pause`
+  // handled in this pass takes effect on the next.
+  const paused = isPaused(cfg.homeDir);
+  const delivered = paused ? [] : (deps.deliverHeld?.(cfg) ?? []);
   // A rejection only means something once the worker hears why, and that
   // hand-over waits for the worker to park just as an answer does.
-  const feedback = deps.deliverFeedback?.(cfg) ?? [];
+  const feedback = paused ? [] : (deps.deliverFeedback?.(cfg) ?? []);
   const handled = drain(cfg, deps);
   // Outbound last: a reply handled in this same pass should be reflected in
   // whatever Jaime is about to be told.
   const notified = deps.notify?.(cfg) ?? { digest: false, urgent: [], reviewAsked: false };
   // Once the day is over Ambrosio keeps working, quietly, on what cannot need
   // Jaime. Nothing here ever sends him anything.
-  const night = isAfterHours(cfg) ? (deps.night?.(cfg) ?? { parked: [], dispatched: [] }) : { parked: [], dispatched: [] };
-  return { handled, delivered, notified, feedback, night };
+  const night = !paused && isAfterHours(cfg) ? (deps.night?.(cfg) ?? { parked: [], dispatched: [] }) : { parked: [], dispatched: [] };
+  return { handled, delivered, notified, feedback, night, paused };
 }
 
 export function realNightDeps(): NightDeps {

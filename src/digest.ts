@@ -1,4 +1,5 @@
 import type { QueueItem } from "./queue.ts";
+import type { Pause } from "./pause.ts";
 import { optionLabels, summarize } from "./queue.ts";
 import type { Ticket } from "./tracker.ts";
 import type { Agent } from "./agents.ts";
@@ -16,6 +17,8 @@ export type BoardState = {
   blocked: Ticket[];
   anomalies: string[];
   tokensToday?: number;
+  /** Set while nothing may start or resume. */
+  paused?: Pause | null;
 };
 
 /** Digest keys are positional and stable within one digest: Q1..Qn, P1..Pn, A1..An. */
@@ -66,7 +69,9 @@ export function renderDigest(board: BoardState): string[] {
     board.working.length ? `${board.working.length} working` : null,
     board.stale?.length ? `${board.stale.length} stale` : null,
   ].filter(Boolean);
-  lines.push(`Ambrosio · ${hhmm(board.now)} · ${counts.length ? counts.join(", ") : "all quiet"}`);
+  const state = board.paused ? "PAUSED · " : "";
+  lines.push(`Ambrosio · ${hhmm(board.now)} · ${state}${counts.length ? counts.join(", ") : "all quiet"}`);
+  if (board.paused) lines.push(`paused since ${board.paused.since.slice(11, 16) || "?"}: ${board.paused.reason} — reply 'resume' to start again`);
 
   if (board.questions.length > 0) {
     lines.push("", "DECIDE");
