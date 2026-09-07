@@ -8,21 +8,7 @@
         " o  s e u  m o r d o m o  d i g i t a l "
 ```
 
-<pre>
- *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*
-     >>> WELCOME TO THE AMBROSIO HOME PAGE - EST. 1995 <<<
- *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*
-</pre>
-
-```
-    +----------------------------------------------------------+
-    |  [!]  U N D E R   C O N S T R U C T I O N   [!]          |
-    |       ( it is v0. it works. do not touch the wires. )    |
-    +----------------------------------------------------------+
-```
-
-> **BEST VIEWED IN** NETSCAPE NAVIGATOR 3.0 @ 800x600 @ 256 COLOURS
-> **THIS PAGE IS** `Y2K COMPLIANT` * `100% HAND-CODED` * `FRAMES-FREE`
+![Ambrosio and the Lady in the yellow hat, Ferrero Rocher, 1995](assets/ambrosio-1995.jpg)
 
 ---
 
@@ -50,19 +36,9 @@ hourly:   one message: decide, approve, accept          (five minutes)
 
 ## `[!]` WHY "AMBROSIO"?? `<-- NEW!! HOT!! CLICK HERE!!`
 
-```
-   ___________________________________________________
-  |  ______________________________________________   |
-  | |                                              |  |
-  | |        [>]  P L A Y   V I D E O              |  |
-  | |                                              |  |
-  | |     "Ambrosio, apetece-me tomar algo..."     |  |
-  | |______________________________________________|  |
-  |___________________________________________________|
-         \_____________________________________/
-```
+[![Ambrosio and the Lady in the yellow hat, Ferrero Rocher, 1995 - click to play](assets/ambrosio-1995.jpg)](https://www.youtube.com/watch?v=Ck5ar-1e8NY)
 
-### **>> [CLICK HERE TO WATCH THE 1995 AD](https://www.youtube.com/watch?v=Ck5ar-1e8NY) <<**
+### **>> [CLICK THE PICTURE TO WATCH THE 1995 AD](https://www.youtube.com/watch?v=Ck5ar-1e8NY) <<**
 
 Ambrósio is the butler in the Ferrero Rocher advert that has run on Portuguese
 television every Christmas since **1995**. (He keeps his accent on TV; the repo drops
