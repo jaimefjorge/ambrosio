@@ -30,6 +30,7 @@ function spyDeps(inbound: InboundMessage[], over: Partial<WatchDeps> = {}) {
     transition: (_c, repo, ticket, status) => { log.push(`transition:${repo}:${ticket}:${status}`); },
     stopWorker: (ticket) => { log.push(`stop:${ticket}`); },
     wake: () => { log.push("wake"); },
+    decide: (_c, d) => { log.push(`decide:${d.kind}:${d.ticket}${d.note ? ":" + d.note : ""}`); return { ticket: d.ticket, outcome: "closed" }; },
     ...over,
   };
   return { deps, log };
@@ -68,22 +69,33 @@ describe("drain", () => {
     ]);
   });
 
-  test("a plan decision needs judgment, so it wakes the manager", () => {
+  test("a plan decision is applied here, not deferred to a session that may not be running", () => {
     const { deps, log } = spyDeps([msg("P1 change: split the migration in two")]);
     const handled = drain(cfg, deps);
 
-    expect(log).toEqual(["wake"]);
-    expect(handled[0].actions[0]).toMatchObject({ kind: "escalated" });
+    expect(log).toEqual(["decide:plan_change:T-9:split the migration in two"]);
+    expect(handled[0].actions[0]).toMatchObject({ kind: "decided", ticket: "T-9" });
+  });
+
+  test("accepting finished work closes it without waking anything", () => {
+    const { deps, log } = spyDeps([msg("A1 accept")], {
+      snapshot: () => ({
+        keys: { questions: {}, plans: {}, accept: { A1: { id: "T-5", repo: "gatemd" } as any } },
+        tickets: [],
+      }),
+    });
+    drain(cfg, deps);
+    expect(log).toEqual(["decide:accept:T-5"]);
   });
 
   test("wakes the manager once for a burst, not once per message", () => {
-    const { deps, log } = spyDeps([msg("P1 ok", 1), msg("A1 accept", 2), msg("@T-3 hurry up", 3)]);
+    const { deps, log } = spyDeps([msg("@T-3 hurry up", 1), msg("quiet until 14:00", 2), msg("what now", 3)]);
     drain(cfg, deps);
     expect(log.filter((l) => l === "wake")).toHaveLength(1);
   });
 
   test("handles what it can and escalates the rest of the same message", () => {
-    const { deps, log } = spyDeps([msg("Q1 b\nP1 ok")]);
+    const { deps, log } = spyDeps([msg("Q1 b\n@T-3 hurry up")]);
     drain(cfg, deps);
     expect(log).toEqual(["answer:q-7:b", "wake"]);
   });

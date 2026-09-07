@@ -118,3 +118,26 @@ describe("buildWorkerDetail", () => {
     expect(d?.questions.map((q) => q.qid)).toEqual(["q-1"]);
   });
 });
+
+describe("things waiting on Jaime other than questions", () => {
+  test("plans and finished work reach the payload with their digest keys", () => {
+    // These were on the board and in the digest but never rendered, so the view
+    // said "nothing waiting on you" while two tickets sat in review.
+    const p = buildPayload(cfg, board({
+      plans: [ticket({ id: "T-7", title: "Plan for the migration", status: "plan_review" })],
+      accept: [
+        ticket({ id: "T-1", title: "Fresh-repo e2e", status: "in_review" }),
+        ticket({ id: "T-2", title: "Migration e2e", status: "in_review" }),
+      ],
+    }));
+
+    expect(p.plans.map((x) => [x.key, x.id])).toEqual([["P1", "T-7"]]);
+    expect(p.accept.map((x) => [x.key, x.id])).toEqual([["A1", "T-1"], ["A2", "T-2"]]);
+    expect(p.accept[0].repo).toBe("gatemd");
+  });
+
+  test("nothing waiting really does mean nothing", () => {
+    const p = buildPayload(cfg, board());
+    expect([...p.questions, ...p.plans, ...p.accept]).toEqual([]);
+  });
+});

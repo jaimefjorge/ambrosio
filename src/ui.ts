@@ -7,6 +7,7 @@ import { assignKeys } from "./digest.ts";
 import * as queue from "./queue.ts";
 import { readTranscript, type Event } from "./transcript.ts";
 import { applyAnswer } from "./dispatch.ts";
+import { applyDecision, type Decision } from "./decide.ts";
 
 /**
  * Bumped whenever the API changes. The page carries the same constant and says
@@ -14,7 +15,7 @@ import { applyAnswer } from "./dispatch.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "2";
+export const UI_VERSION = "3";
 
 export type UiWorker = {
   id?: string;
@@ -41,11 +42,16 @@ export type UiQuestion = {
   askedAt?: string;
 };
 
+/** A plan to review, or finished work to accept: the other two things that wait on Jaime. */
+export type UiDecision = { key: string; id: string; repo: string; title: string; status: string };
+
 export type UiPayload = {
   now: string;
   wip: { used: number; limit: number };
   workers: UiWorker[];
   questions: UiQuestion[];
+  plans: UiDecision[];
+  accept: UiDecision[];
   tickets: { id: string; repo: string; title: string; status: string }[];
   anomalies: string[];
   tokensToday?: number;
@@ -94,11 +100,16 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
     askedAt: q.createdAt,
   }));
 
+  const decisions = (from: Record<string, any>): UiDecision[] =>
+    Object.entries(from).map(([key, t]) => ({ key, id: t.id, repo: t.repo ?? "", title: t.title, status: t.status }));
+
   return {
     now: board.now.toISOString(),
     wip: { used: workers.filter((w) => BUSY.has(w.state)).length, limit: cfg.wipLimit },
     workers,
     questions,
+    plans: decisions(keys.plans),
+    accept: decisions(keys.accept),
     tickets: board.all.map((t) => ({ id: t.id, repo: t.repo ?? "", title: t.title, status: t.status })),
     anomalies: board.anomalies,
     tokensToday: board.tokensToday,
@@ -168,6 +179,18 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
         const origin = req.headers.get("origin");
         if (req.headers.get("x-ambrosio") !== "1" || (origin && origin !== url.origin)) {
           return Response.json({ error: "refused" }, { status: 403 });
+        }
+      }
+
+      if (url.pathname === "/api/decide" && req.method === "POST") {
+        try {
+          const body = (await req.json()) as Partial<Decision>;
+          if (!body.kind || !body.ticket || !body.repo) {
+            return Response.json({ error: "kind, ticket and repo are required" }, { status: 400 });
+          }
+          return Response.json({ ok: true, ...applyDecision(cfg, body as Decision) });
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 400 });
         }
       }
 

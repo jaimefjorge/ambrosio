@@ -6,6 +6,7 @@ export type Action =
   | { kind: "answered"; qid: string; ticket: string; delivery: "resumed" | "deferred" }
   | { kind: "status" }
   | { kind: "parked"; ticket: string; stopped: boolean }
+  | { kind: "decided"; ticket: string; outcome: string }
   | { kind: "escalated"; why: string }
   | { kind: "failed"; why: string };
 
@@ -24,6 +25,7 @@ export type WatchDeps = {
   sendDigest: (cfg: AmbrosioConfig) => void;
   transition: (cfg: AmbrosioConfig, repo: string, ticket: string, status: string, note: string) => void;
   stopWorker: (ticket: string) => void;
+  decide: (cfg: AmbrosioConfig, d: Decision) => { ticket: string; outcome: string };
   wake: (cfg: AmbrosioConfig) => void;
   /** Retry answers recorded while their worker was mid-turn. */
   deliverHeld?: (cfg: AmbrosioConfig) => { qid: string; ticket: string; repo: string }[];
@@ -61,6 +63,19 @@ export function routeReply(cfg: AmbrosioConfig, reply: Reply, snap: Snapshot, de
       deps.transition(cfg, t.repo, t.id, "deferred", stopping ? "Jaime stopped it" : "Jaime deferred it");
       if (stopping) deps.stopWorker(t.id);
       return { kind: "parked", ticket: t.id, stopped: stopping };
+    }
+
+    case "plan":
+    case "accept":
+    case "reject": {
+      const from = reply.kind === "plan" ? snap.keys.plans : snap.keys.accept;
+      const t = from[reply.key];
+      if (!t) return { kind: "escalated", why: `${reply.key} is not on the current board` };
+      const kind: Decision["kind"] =
+        reply.kind === "plan" ? (reply.decision === "ok" ? "plan_ok" : "plan_change")
+        : reply.kind === "accept" ? "accept" : "reject";
+      const r = deps.decide(cfg, { kind, ticket: t.id, repo: t.repo ?? "", note: reply.note });
+      return { kind: "decided", ticket: r.ticket, outcome: r.outcome };
     }
 
     default:
@@ -120,6 +135,7 @@ import { collectBoard } from "./board.ts";
 import { notifyPass, realNotifyDeps, hourKey } from "./notify.ts";
 import { assignKeys, renderDigest } from "./digest.ts";
 import { applyAnswer, deliverHeldAnswers } from "./dispatch.ts";
+import { applyDecision, type Decision } from "./decide.ts";
 
 /** A woken manager costs a session, so never storm it. */
 const WAKE_COOLDOWN_MS = 60_000;
@@ -165,6 +181,8 @@ export function realDeps(): WatchDeps {
       const worker = agents.byName(ticket);
       if (worker?.id) agents.stop(worker.id);
     },
+
+    decide: (cfg, d) => applyDecision(cfg, d),
 
     wake: (cfg) => {
       const now = Date.now();

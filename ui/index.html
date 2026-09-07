@@ -194,7 +194,7 @@
 <div class="panel" id="tickets"></div>
 
 <script>
-const UI_VERSION = "2";        // must match UI_VERSION in src/ui.ts
+const UI_VERSION = "3";        // must match UI_VERSION in src/ui.ts
 const answers = {};            // qid -> draft text, kept across re-renders
 const said = {};               // qid -> what happened when we sent it
 let lastQSig = null;           // questions panel is only rebuilt when it changes
@@ -219,14 +219,18 @@ function render(d) {
   $("stats").innerHTML =
     `<span>wip <b>${d.wip.used}/${d.wip.limit}</b></span>` +
     `<span>workers <b>${d.workers.length}</b></span>` +
-    `<span>open questions <b>${d.questions.length}</b></span>` +
+    `<span>needs you <b>${d.questions.length + d.plans.length + d.accept.length}</b></span>` +
     (d.tokensToday ? `<span>today <b>${tokens(d.tokensToday)}</b></span>` : "");
 
   $("anomalies").innerHTML = d.anomalies.length
     ? `<div class="panel banner">${d.anomalies.map((a) => `<div>! ${esc(a)}</div>`).join("")}</div>`
     : "";
 
-  const qSig = JSON.stringify(d.questions.map((q) => [q.qid, q.summary, q.urgent, q.options]));
+  const qSig = JSON.stringify([
+    d.questions.map((q) => [q.qid, q.summary, q.urgent, q.options]),
+    d.plans.map((x) => [x.key, x.id]),
+    d.accept.map((x) => [x.key, x.id]),
+  ]);
   if (qSig !== lastQSig) {
     lastQSig = qSig;
     $("questions").innerHTML = d.questions.length
@@ -309,7 +313,38 @@ async function sendAnswer(row) {
   }
 }
 
+async function sendDecision(row, kind) {
+  const input = row.querySelector("input");
+  const note = input.value.trim();
+  const id = row.dataset.ticket;
+
+  const buttons = row.querySelectorAll("button");
+  buttons.forEach((b) => (b.disabled = true));
+  said[id] = "sending…";
+  try {
+    const r = await fetch("/api/decide", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-ambrosio": "1" },
+      body: JSON.stringify({ kind, ticket: id, repo: row.dataset.repo, note }),
+    });
+    const res = await r.json();
+    if (!r.ok || res.error) throw new Error(res.error || "failed");
+    said[id] = res.outcome === "closed" ? `accepted — ${id} closed`
+             : res.outcome === "resumed" ? `sent — ${id} picked it up`
+             : `sent — ${id} has no live worker, it needs dispatching again`;
+    input.value = "";
+    lastQSig = null;
+  } catch (e) {
+    said[id] = "! " + e.message;
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+    poll();
+  }
+}
+
 $("questions").addEventListener("click", (e) => {
+  const dec = e.target.closest("[data-decide]");
+  if (dec && e.target.classList.contains("go")) { sendDecision(dec, e.target.dataset.kind); return; }
   const row = e.target.closest("[data-qid]");
   if (!row) return;
   if (e.target.classList.contains("opt")) {
@@ -548,9 +583,9 @@ function setMood(d) {
   if (failed || d.anomalies.length) {
     mood = "alarm";
     text = failed ? `${failed} worker${failed > 1 ? "s" : ""} failed` : "something is off";
-  } else if (d.questions.length || blocked) {
+  } else if (d.questions.length || d.plans.length || d.accept.length || blocked) {
     mood = "attention";
-    const n = d.questions.length || blocked;
+    const n = d.questions.length + d.plans.length + d.accept.length || blocked;
     text = `${n} waiting on you`;
   } else if (working) {
     mood = "busy";
