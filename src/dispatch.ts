@@ -1,0 +1,132 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { AmbrosioConfig, RepoConfig } from "./config.ts";
+import { repoByName } from "./config.ts";
+import * as tracker from "./tracker.ts";
+import type { Ticket } from "./tracker.ts";
+import * as agents from "./agents.ts";
+import * as journal from "./journal.ts";
+
+export class DispatchError extends Error {}
+
+export function workDirFor(cfg: AmbrosioConfig, repo: RepoConfig, ticketId: string): string {
+  return join(cfg.homeDir, "work", repo.name, ticketId);
+}
+
+/** Fill the worker contract for one ticket. Nothing in here is optional prose: the worker reads it as its whole brief. */
+export function renderWorkerPrompt(cfg: AmbrosioConfig, repo: RepoConfig, ticket: Ticket): string {
+  const template = readFileSync(join(cfg.rootDir, "worker", "prompt.md"), "utf8");
+  const meta = ticket.metadata ?? {};
+  const verify: string[] = Array.isArray(meta.verify) ? meta.verify : meta.verify ? [String(meta.verify)] : [];
+  const requiresPlanApproval = meta.plan_gate === true || meta.planning_path === "architectural";
+
+  const planGate = requiresPlanApproval
+    ? `This ticket requires plan approval. When the plan is written, run \`bd -C ${repo.path} update ${ticket.id} --status plan_review\`, add a one-paragraph summary with \`bd -C ${repo.path} comment ${ticket.id} "<summary>"\`, and end your turn. Do not write code until Ambrosio restarts you with Jaime's approval.`
+    : `This ticket is bounded: write the plan, then continue straight into implementation without waiting.`;
+
+  const replacements: Record<string, string> = {
+    TICKET_ID: ticket.id,
+    TITLE: ticket.title,
+    REPO: repo.name,
+    REPO_PATH: repo.path,
+    DESCRIPTION: ticket.description?.trim() || "(no description beyond the title)",
+    ACCEPTANCE: ticket.acceptance_criteria?.trim() || "(none recorded — treat the title as the criterion and say so in your plan)",
+    VERIFY: verify.length > 0 ? verify.join("\n") : "(none recorded — use the repo's own test command and say which you chose)",
+    SCOPE: meta.scope ? String(meta.scope) : "Only what the acceptance criteria require. Anything else is a new ticket.",
+    DECISION_BUDGET: meta.decision_budget
+      ? String(meta.decision_budget)
+      : "Implementation details, file layout, naming inside the code, and test structure. Not product behaviour, not scope, not dependencies.",
+    WORK_DIR: workDirFor(cfg, repo, ticket.id),
+    PLAN_GATE: planGate,
+    TURN_CAP: String(cfg.turnCap),
+  };
+
+  let out = template;
+  for (const [k, v] of Object.entries(replacements)) {
+    out = out.replaceAll(`{{${k}}}`, v);
+  }
+  const leftover = /\{\{([A-Z_]+)\}\}/.exec(out);
+  if (leftover) throw new DispatchError(`worker prompt still has an unfilled placeholder: ${leftover[1]}`);
+  return out;
+}
+
+export type DispatchDeps = {
+  dispatch: typeof agents.dispatch;
+  countBusy: () => number;
+};
+
+const realDeps: DispatchDeps = {
+  dispatch: agents.dispatch,
+  countBusy: () => agents.busy(agents.workers()).length,
+};
+
+export function dispatchTicket(
+  cfg: AmbrosioConfig,
+  repoName: string,
+  ticketId: string,
+  deps: DispatchDeps = realDeps,
+): { id: string; name: string; promptPath: string } {
+  const repo = repoByName(cfg, repoName);
+
+  const busy = deps.countBusy();
+  if (busy >= cfg.wipLimit) {
+    throw new DispatchError(`WIP limit reached: ${busy}/${cfg.wipLimit} workers already running. Finish or park one first.`);
+  }
+
+  const ticket = tracker.get(repo, ticketId);
+  if (!["open", "needs_input", "blocked", "plan_review"].includes(ticket.status)) {
+    throw new DispatchError(`${ticketId} is ${ticket.status}; only open, needs_input, blocked or plan_review tickets can be dispatched.`);
+  }
+
+  const dir = journal.workDir(cfg.homeDir, repo.name, ticket.id);
+  const prompt = renderWorkerPrompt(cfg, repo, ticket);
+  const promptPath = join(dir, "prompt.md");
+  Bun.write(promptPath, prompt);
+
+  tracker.transition(repo, ticket.id, "planning", "Ambrosio: dispatched a worker");
+
+  const result = deps.dispatch({
+    cwd: repo.path,
+    name: ticket.id,
+    prompt,
+    settings: join(cfg.rootDir, "worker", "settings.json"),
+    permissionMode: "auto",
+    env: {
+      AMBROSIO_HOME: cfg.homeDir,
+      AMBROSIO_TICKET: ticket.id,
+      AMBROSIO_REPO: repo.name,
+    },
+  });
+
+  tracker.setMeta(repo, ticket.id, { session: result.id });
+  journal.recordSession(cfg.homeDir, repo.name, ticket.id, {
+    id: result.id,
+    startedAt: new Date().toISOString(),
+  });
+  journal.append(cfg.homeDir, `dispatched ${repo.name} ${ticket.id} (${ticket.title}) as session ${result.id}`);
+
+  return { ...result, promptPath };
+}
+
+/** Send an answer back to the worker that asked, restarting it if its process has stopped. */
+export function deliverAnswer(
+  cfg: AmbrosioConfig,
+  opts: { ticket: string; repo: string; sessionId?: string; text: string },
+): "messaged" | "resumed" {
+  const repo = repoByName(cfg, opts.repo);
+  const live = agents.workers().find((a) => a.name === opts.ticket);
+  const body = `Ambrosio relaying Jaime's decision: ${opts.text}`;
+
+  if (live && (live.state === "working" || live.state === "blocked") && live.pid) {
+    agents.message(opts.ticket, body);
+    journal.append(cfg.homeDir, `answered ${opts.ticket} (live session)`);
+    return "messaged";
+  }
+
+  const id = live?.id ?? opts.sessionId;
+  if (!id) throw new DispatchError(`no session found for ${opts.ticket}; dispatch it again instead`);
+  agents.resume(id, `${body}\n\nContinue the ticket from where you stopped. Read your work directory first.`, repo.path);
+  tracker.transition(repo, opts.ticket, "in_progress", `Ambrosio: answer delivered — ${opts.text.slice(0, 200)}`);
+  journal.append(cfg.homeDir, `answered ${opts.ticket} (resumed session ${id})`);
+  return "resumed";
+}

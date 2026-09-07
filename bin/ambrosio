@@ -1,0 +1,236 @@
+#!/usr/bin/env bun
+/**
+ * Ambrosio CLI. Everything the manager skills and Jaime need, in one place.
+ */
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { loadConfig, repoByName, withinHours, type AmbrosioConfig } from "../src/config.ts";
+import * as tracker from "../src/tracker.ts";
+import * as agents from "../src/agents.ts";
+import * as queue from "../src/queue.ts";
+import * as journal from "../src/journal.ts";
+import * as imessage from "../src/imessage.ts";
+import { collectBoard, canDispatch, wipUsed } from "../src/board.ts";
+import { renderDigest, renderUrgent, hasDecisions, assignKeys } from "../src/digest.ts";
+import { dispatchTicket, deliverAnswer } from "../src/dispatch.ts";
+
+const argv = process.argv.slice(2);
+const cmd = argv[0] ?? "help";
+const flags = new Set(argv.filter((a) => a.startsWith("--")));
+const args = argv.slice(1).filter((a) => !a.startsWith("--"));
+const asJson = flags.has("--json");
+
+function out(x: unknown) {
+  console.log(typeof x === "string" ? x : JSON.stringify(x, null, 2));
+}
+
+function die(msg: string): never {
+  console.error(`ambrosio: ${msg}`);
+  process.exit(1);
+}
+
+function cfg(): AmbrosioConfig {
+  try {
+    return loadConfig();
+  } catch (e) {
+    die((e as Error).message);
+  }
+}
+
+const HELP = `ambrosio — manager for Claude Code workers
+
+  setup                        check tools, create ~/.ambrosio, init beads in each repo
+  status [--json]              the whole board: tickets, workers, parked questions
+  queue [--json]               parked questions waiting for you
+  dispatch <repo> <ticket>     start a worker on a ticket
+  answer <qid> <text...>       answer a parked question and route it to the worker
+  digest [--send]              render the digest (and optionally send it)
+  urgent [--send]              render anything urgent
+  send <text...>               send yourself an iMessage
+  tick [--send]                one manager cycle: route, detect, dispatch, digest
+  journal                      today's decisions
+`;
+
+switch (cmd) {
+  case "help":
+  case "--help":
+    out(HELP);
+    break;
+
+  case "setup": {
+    const c = cfg();
+    const problems: string[] = [];
+    for (const tool of ["bd", "claude", "jq", "gh"]) {
+      if (spawnSync("which", [tool], { encoding: "utf8" }).status !== 0) problems.push(`missing tool: ${tool}`);
+    }
+    for (const d of ["queue", "work", "journal", "outbox"]) {
+      const p = join(c.homeDir, d);
+      if (!existsSync(p)) mkdirSync(p, { recursive: true });
+    }
+    const repoLines: string[] = [];
+    for (const repo of c.repos) {
+      try {
+        const r = tracker.initRepo(repo);
+        repoLines.push(`  ${repo.name}: ${r.initialized ? "beads initialized" : "beads already present"} (prefix ${repo.prefix})`);
+      } catch (e) {
+        repoLines.push(`  ${repo.name}: FAILED — ${(e as Error).message}`);
+        problems.push(`beads init failed in ${repo.name}`);
+      }
+    }
+    const plugins = spawnSync("claude", ["plugin", "list"], { encoding: "utf8" }).stdout ?? "";
+    if (!plugins.includes("imessage")) problems.push("iMessage plugin not installed: claude plugin install imessage@claude-plugins-official -s user");
+    if (!c.imessage.handle) problems.push("imessage.handle is empty in ambrosio.config.json — set it to the number or Apple ID you text yourself with");
+
+    out([
+      `home: ${c.homeDir}`,
+      `repos:`,
+      ...repoLines,
+      `wip limit: ${c.wipLimit}   hours: ${c.hours.planning}–${c.hours.wrapUp}`,
+      "",
+      problems.length ? `TODO:\n${problems.map((p) => `  - ${p}`).join("\n")}` : "Everything is ready.",
+      "",
+      "Manual steps macOS requires:",
+      "  1. Give your terminal Full Disk Access (System Settings > Privacy & Security) so the iMessage channel can read chat.db.",
+      "  2. Text yourself once in Messages so a self-chat exists.",
+      "  3. Accept the Messages automation prompt on the first reply.",
+    ].join("\n"));
+    break;
+  }
+
+  case "status": {
+    const c = cfg();
+    const board = collectBoard(c);
+    if (asJson) {
+      out({
+        now: board.now.toISOString(),
+        wip: `${wipUsed(board)}/${c.wipLimit}`,
+        withinHours: withinHours(c),
+        ready: board.ready.map((t) => ({ id: t.id, repo: t.repo, title: t.title, priority: t.priority })),
+        working: board.working.map((w) => ({ ticket: w.ticket?.id, repo: w.ticket?.repo, agent: w.agent.name ?? w.agent.id, state: w.agent.state, detail: w.agent.detail })),
+        plans: board.plans.map((t) => ({ id: t.id, repo: t.repo, title: t.title })),
+        accept: board.accept.map((t) => ({ id: t.id, repo: t.repo, title: t.title, metadata: t.metadata })),
+        needsInput: board.needsInput.map((t) => ({ id: t.id, repo: t.repo, title: t.title })),
+        blocked: board.blocked.map((t) => ({ id: t.id, repo: t.repo, title: t.title })),
+        questions: board.questions.map((q) => ({ qid: q.qid, ticket: q.ticket, repo: q.repo, urgent: q.urgent, question: queue.summarize(q), options: queue.optionLabels(q) })),
+        anomalies: board.anomalies,
+      });
+    } else {
+      out(renderDigest(board).join("\n"));
+    }
+    break;
+  }
+
+  case "queue": {
+    const c = cfg();
+    const open = queue.listOpen(c.homeDir);
+    if (asJson) { out(open); break; }
+    if (open.length === 0) { out("nothing parked"); break; }
+    out(open.map((q) => `${q.qid}${q.urgent ? " ⚠" : ""} [${q.repo} ${q.ticket}] ${queue.summarize(q)}\n   options: ${queue.optionLabels(q).join(" | ") || "(free text)"}`).join("\n"));
+    break;
+  }
+
+  case "dispatch": {
+    const c = cfg();
+    const [repo, ticket] = args;
+    if (!repo || !ticket) die("usage: ambrosio dispatch <repo> <ticket>");
+    try {
+      const r = dispatchTicket(c, repo, ticket);
+      out(`dispatched ${ticket} in ${repo} as session ${r.id}`);
+    } catch (e) {
+      die((e as Error).message);
+    }
+    break;
+  }
+
+  case "answer": {
+    const c = cfg();
+    const qid = args[0];
+    const text = args.slice(1).join(" ");
+    if (!qid || !text) die("usage: ambrosio answer <qid> <text...>");
+    const item = queue.get(c.homeDir, qid);
+    if (!item) die(`no such question: ${qid}`);
+    queue.answer(c.homeDir, qid, text);
+    try {
+      const how = deliverAnswer(c, { ticket: item.ticket, repo: item.repo, sessionId: item.sessionId, text });
+      queue.markDelivered(c.homeDir, qid);
+      out(`${qid} answered and ${how} to ${item.ticket}`);
+    } catch (e) {
+      out(`${qid} recorded, but delivery failed: ${(e as Error).message}`);
+    }
+    break;
+  }
+
+  case "digest": {
+    const c = cfg();
+    const board = collectBoard(c);
+    const chunks = renderDigest(board);
+    out(chunks.join("\n---\n"));
+    if (flags.has("--send")) {
+      if (!hasDecisions(board) && !flags.has("--force")) { out("(nothing to decide; not sent)"); break; }
+      imessage.sendAll(c, chunks);
+      journal.append(c.homeDir, `digest sent (${board.questions.length} questions, ${board.plans.length} plans, ${board.accept.length} to accept)`);
+      Bun.write(join(c.homeDir, "outbox", `${Date.now()}-digest.txt`), chunks.join("\n"));
+      out("(sent)");
+    }
+    break;
+  }
+
+  case "urgent": {
+    const c = cfg();
+    const urgent = queue.listUrgentOpen(c.homeDir);
+    if (urgent.length === 0) { out("nothing urgent"); break; }
+    for (const item of urgent) {
+      const msg = renderUrgent(item);
+      out(msg);
+      if (flags.has("--send")) {
+        imessage.send(c, msg);
+        journal.append(c.homeDir, `urgent sent: ${item.qid} (${item.ticket})`);
+      }
+    }
+    break;
+  }
+
+  case "send": {
+    const c = cfg();
+    const text = args.join(" ");
+    if (!text) die("usage: ambrosio send <text...>");
+    imessage.send(c, text);
+    journal.append(c.homeDir, `sent: ${text.slice(0, 120)}`);
+    out("sent");
+    break;
+  }
+
+  case "tick": {
+    const c = cfg();
+    const board = collectBoard(c);
+    const keys = assignKeys(board);
+    const inHours = withinHours(c);
+    const dispatchable = canDispatch(c, board) && inHours ? board.ready.slice(0, c.wipLimit - wipUsed(board)) : [];
+    out({
+      now: board.now.toISOString(),
+      withinHours: inHours,
+      wip: `${wipUsed(board)}/${c.wipLimit}`,
+      hasDecisions: hasDecisions(board),
+      keys: {
+        questions: Object.fromEntries(Object.entries(keys.questions).map(([k, v]) => [k, { qid: v.qid, ticket: v.ticket, repo: v.repo, urgent: v.urgent, question: queue.summarize(v), options: queue.optionLabels(v) }])),
+        plans: Object.fromEntries(Object.entries(keys.plans).map(([k, v]) => [k, { id: v.id, repo: v.repo, title: v.title }])),
+        accept: Object.fromEntries(Object.entries(keys.accept).map(([k, v]) => [k, { id: v.id, repo: v.repo, title: v.title }])),
+      },
+      urgent: queue.listUrgentOpen(c.homeDir).map((q) => q.qid),
+      anomalies: board.anomalies,
+      dispatchable: dispatchable.map((t) => ({ repo: t.repo, id: t.id, title: t.title })),
+      digest: renderDigest(board),
+    });
+    break;
+  }
+
+  case "journal": {
+    const c = cfg();
+    out(journal.read(c.homeDir) || "(nothing yet today)");
+    break;
+  }
+
+  default:
+    die(`unknown command: ${cmd}\n\n${HELP}`);
+}
