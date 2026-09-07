@@ -11,44 +11,47 @@ import { rootDir } from "../src/config.ts";
  * `questions.length` that hid plans and finished work, and a payload field the
  * markup never used. Rendering it here catches that class of thing.
  */
-function renderPage(payload: any): Record<string, string> {
+function mountFleet() {
   const html = readFileSync(join(rootDir(), "ui", "index.html"), "utf8");
   const butler = readFileSync(join(rootDir(), "ui", "butler.js"), "utf8");
   const script = butler + "\n" + /<script>([\s\S]*?)<\/script>/.exec(html)![1];
 
   const nodes: Record<string, any> = {};
+  const posted: { url: string; body: any }[] = [];
   const node = (id: string) => (nodes[id] ??= {
-    id, innerHTML: "", textContent: "", className: "", hidden: false, dataset: {},
-    addEventListener() {}, querySelector: () => null, querySelectorAll: () => [],
+    id, innerHTML: "", textContent: "", className: "", value: "", placeholder: "",
+    disabled: false, hidden: false, dataset: {}, style: {},
+    addEventListener() {}, classList: { toggle() {}, add() {}, remove() {} },
+    querySelector: () => null, querySelectorAll: () => [],
+    getBoundingClientRect: () => ({ width: 216, height: 180 }),
     getContext: () => ({ fillRect() {}, clearRect() {}, fillStyle: "", imageSmoothingEnabled: true }),
   });
 
-  const document = {
-    getElementById: node,
-    addEventListener() {},
-    querySelector: () => null,
-    // The worker cards each carry a stage-track canvas that render() paints.
-    querySelectorAll: () => [],
-    documentElement: { dataset: {} },
-    body: {},
-  };
-  const window = { matchMedia: () => ({ matches: false, addEventListener() {} }) };
   const stubs = {
-    document, window,
+    document: {
+      getElementById: node, addEventListener() {}, querySelector: () => null,
+      querySelectorAll: () => [], documentElement: { dataset: {} }, body: {},
+    },
+    window: { matchMedia: () => ({ matches: false, addEventListener() {} }), innerWidth: 1400, innerHeight: 900 },
     CSS: { escape: (s: string) => s },
-    fetch: async () => ({ ok: true, json: async () => ({ error: "stubbed" }) }),
+    fetch: (url: string, init: any) => {
+      posted.push({ url, body: init?.body ? JSON.parse(init.body) : null });
+      return Promise.resolve({ ok: true, json: async () => ({ ok: true, answer: "because it is waiting on the gate" }) });
+    },
     setInterval: () => 0,
     getComputedStyle: () => ({ getPropertyValue: () => "#000" }),
   };
+  const api = new Function(...Object.keys(stubs),
+    `${script}\nreturn { render, setMood: butler.setMoodFromBoard, openMenu, askAbout, closeMenu };`)(...Object.values(stubs));
+  return { api, nodes, posted, html: (id: string) => `${nodes[id]?.innerHTML ?? ""}${nodes[id]?.textContent ?? ""}` };
+}
 
-  const fn = new Function(
-    ...Object.keys(stubs),
-    `${script}\nreturn { render, setMood: butler.setMoodFromBoard };`,
-  );
-  const api = fn(...Object.values(stubs));
-  api.render(payload);
-  api.setMood(payload);
-  return Object.fromEntries(Object.entries(nodes).map(([k, v]) => [k, `${v.innerHTML}${v.textContent}`]));
+/** Render a payload and return each node's text, for the panel assertions. */
+function renderPage(payload: any): Record<string, string> {
+  const m = mountFleet();
+  m.api.render(payload);
+  m.api.setMood(payload);
+  return Object.fromEntries(Object.entries(m.nodes).map(([k, v]) => [k, `${v.innerHTML}${v.textContent}`]));
 }
 
 const empty = { now: "", wip: { used: 0, limit: 3 }, workers: [], questions: [], plans: [], accept: [], tickets: [], anomalies: [] };
@@ -136,5 +139,50 @@ describe("where a worker stands in the cycle", () => {
   test("a worker with no ticket gets no track rather than a wrong one", () => {
     const out = renderPage({ ...empty, workers: [{ id: "a1", name: "x", state: "done", cwd: "/w" }] }).workers;
     expect(out).not.toContain('class="stage"');
+  });
+});
+
+describe("right-clicking a worker to ask about it", () => {
+  test("the menu names the worker and offers the questions worth asking", () => {
+    const m = mountFleet();
+    m.api.openMenu(100, 100, "gmc-4or");
+
+    const menu = m.nodes.menu.innerHTML;
+    expect(m.nodes.menu.hidden).toBe(false);
+    expect(menu).toContain("gmc-4or");
+    expect(menu).toContain("Is it stuck?");
+    expect(menu).toContain("What is left before this can be accepted?");
+    expect(menu).toContain("Ask something else");
+  });
+
+  test("the question is scoped to the worker that was right-clicked", async () => {
+    const m = mountFleet();
+    await m.api.askAbout("Is it stuck?", "gmc-gfh");
+
+    // The page also polls the board on load; only the ask matters here.
+    const asks = m.posted.filter((p) => p.url === "/api/ask");
+    expect(asks).toHaveLength(1);
+    expect(asks[0].body).toMatchObject({ question: "Is it stuck?", ticket: "gmc-gfh" });
+  });
+
+  test("the answer says which worker it is about, so two answers cannot be confused", async () => {
+    const m = mountFleet();
+    await m.api.askAbout("Is it stuck?", "gmc-gfh");
+    expect(m.nodes.answer.innerHTML).toContain("about gmc-gfh");
+    expect(m.nodes.answer.innerHTML).toContain("waiting on the gate");
+  });
+
+  test("asking with no worker is about the fleet, not about nothing", async () => {
+    const m = mountFleet();
+    await m.api.askAbout("how is the day going?", undefined);
+    expect(m.posted.filter((p) => p.url === "/api/ask")[0].body.ticket).toBeUndefined();
+    expect(m.nodes.answer.innerHTML).toContain("about the fleet");
+  });
+
+  test("the menu stays on screen when the card is at the edge", () => {
+    const m = mountFleet();
+    m.api.openMenu(1390, 880, "gmc-4or");
+    expect(parseInt(m.nodes.menu.style.left)).toBeLessThan(1390);
+    expect(parseInt(m.nodes.menu.style.top)).toBeLessThan(880);
   });
 });

@@ -22,7 +22,7 @@ Built against Claude Code 2.1.263, Beads 1.2.2 (Dolt 2.3.2), Bun 1.3.13, macOS.
 | Digests and urgent lines sent without a live session | Tested | `test/notify.test.ts` encodes the charter's rules: silence outside hours, silence when there is nothing to decide, one digest per clock hour, urgent still gets through |
 | Replies routed in seconds, not at the top of the hour | Tested | `test/watch.test.ts`: answers resume the worker with no model in the loop, judgment cases wake the manager once per burst |
 | Ambrosio himself, in the corner of the fleet view | Working | A 24x24 pixel butler who wanders, bows when clicked, and lifts his tray when a question is waiting; theme-aware so he does not vanish on a dark ground |
-| Asking Ambrosio about the work | Working | `bin/ambrosio ask`, the box in the fleet view, or a question texted from the phone; answered from the board, the ticket, the worker's transcript and the journal, and never allowed to act |
+| Asking Ambrosio about the work | Working | Right-click a worker for the questions worth asking, or `bin/ambrosio ask`, the box in the fleet view, or a question texted from the phone; answered from the board, the ticket, the worker's transcript and the journal, and never allowed to act |
 | End-of-day review that changes tomorrow | Working | Asked at wrap-up, kept, and read back into the morning brief and every worker's prompt |
 | After-hours shift | Working | Bounded work only, nothing plan-gated, nothing sent; a stuck worker is parked for the morning and the night moves on |
 | Morning brief | Working | Choose the day's projects and say what it is for, then see only that: carryover from the journal, PRs ranked by what they need, Linear when a key is set, Verity, what is ready to start — then pick today's work and dispatch it |
@@ -36,7 +36,7 @@ Built against Claude Code 2.1.263, Beads 1.2.2 (Dolt 2.3.2), Bun 1.3.13, macOS.
 | A question is filed against the worker that actually asked it | Fixed, regression-tested | `worker/hooks/resolve-ticket.sh` prefers the session id, then the worktree path, then the env var; verified against the two live sessions that misfired |
 | Reading what Jaime texts | **Fixed, verified against the real database** | `bin/ambrosio inbox` returned a `status` message the channel plugin had silently dropped; a send immediately afterwards was not read back |
 
-261 tests, all passing.
+266 tests, all passing.
 
 ## The inbound channel does not work on this Mac, so Ambrosio reads Messages itself
 

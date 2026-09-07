@@ -33,6 +33,23 @@
          background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; }
   #ask:focus { outline: none; border-color: var(--ink); }
   #answer { margin: 10px 0 0; padding: 12px 14px; white-space: pre-wrap; }
+  #answer .who { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+                 color: var(--dim); margin-bottom: 6px; }
+
+  #menu {
+    position: fixed; z-index: 30; min-width: 216px; padding: 4px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  }
+  #menu[hidden] { display: none; }
+  #menu .head { padding: 6px 10px 7px; font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+                color: var(--dim); border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  #menu button {
+    display: block; width: 100%; text-align: left; font: inherit; font-size: 13px;
+    padding: 7px 10px; border: 0; border-radius: 4px; background: none; color: var(--ink); cursor: pointer;
+  }
+  #menu button:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+  #menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
   #answer[hidden] { display: none; }
   #live { font-size: 12px; color: var(--dim); }
   #live.stale { color: var(--failed); }
@@ -181,6 +198,8 @@
 
 <div class="panel" id="answer" hidden></div>
 
+<div id="menu" hidden></div>
+
 <div id="stale"></div>
 <div id="anomalies"></div>
 
@@ -210,7 +229,7 @@
 
 <script src="/butler.js"></script>
 <script>
-const UI_VERSION = "6";        // must match UI_VERSION in src/ui.ts
+const UI_VERSION = "7";        // must match UI_VERSION in src/ui.ts
 const answers = {};            // qid -> draft text, kept across re-renders
 const said = {};               // qid -> what happened when we sent it
 let lastQSig = null;           // questions panel is only rebuilt when it changes
@@ -543,29 +562,80 @@ const butler = createButler($("pet-canvas"), {
 
 
 // Asking is a question, never a command: it reads the board and answers.
-$("ask").addEventListener("keydown", async (e) => {
-  if (e.key !== "Enter") return;
-  const question = $("ask").value.trim();
-  if (!question) return;
+async function askAbout(question, ticket) {
+  if (!question?.trim()) return;
   const box = $("answer");
   box.hidden = false;
-  box.textContent = "Ambrosio is looking…";
+  box.innerHTML = `<span class="who">${esc(ticket ? `about ${ticket}` : "about the fleet")} — ${esc(question)}</span>Ambrosio is looking…`;
   $("ask").disabled = true;
   try {
     const r = await fetch("/api/ask", {
       method: "POST",
       headers: { "content-type": "application/json", "x-ambrosio": "1" },
-      body: JSON.stringify({ question, ticket: selected || undefined }),
+      body: JSON.stringify({ question, ticket: ticket || undefined }),
     });
     const d = await r.json();
-    box.textContent = d.answer || "(no answer)";
+    box.innerHTML = `<span class="who">${esc(ticket ? `about ${ticket}` : "about the fleet")} — ${esc(question)}</span>` + esc(d.answer || "(no answer)");
     if (d.ok) $("ask").value = "";
   } catch (err) {
-    box.textContent = "Could not ask: " + err.message;
+    box.innerHTML = `<span class="who">${esc(question)}</span>Could not ask: ${esc(err.message)}`;
   } finally {
     $("ask").disabled = false;
   }
+}
+
+$("ask").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") askAbout($("ask").value.trim(), selected || undefined);
 });
+
+// --- right-click a worker to ask about that worker -------------------------
+
+const CANNED = [
+  "What is it doing right now?",
+  "Is it stuck?",
+  "What is left before this can be accepted?",
+  "What has it changed so far?",
+];
+
+function closeMenu() { $("menu").hidden = true; }
+
+function openMenu(x, y, ticket) {
+  const m = $("menu");
+  m.innerHTML = `<div class="head">${esc(ticket)}</div>` +
+    CANNED.map((q) => `<button data-q="${esc(q)}">${esc(q)}</button>`).join("") +
+    `<hr><button data-act="type">Ask something else…</button>` +
+    `<button data-act="open">Open its activity</button>`;
+  m.dataset.ticket = ticket;
+  m.hidden = false;
+  // Keep it on screen when the card is near an edge.
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, window.innerWidth - r.width - 8) + "px";
+  m.style.top = Math.min(y, window.innerHeight - r.height - 8) + "px";
+}
+
+$("workers").addEventListener("contextmenu", (e) => {
+  const card = e.target.closest(".card[data-id]");
+  if (!card) return;
+  e.preventDefault();
+  openMenu(e.clientX, e.clientY, card.dataset.id);
+});
+
+$("menu").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  const ticket = $("menu").dataset.ticket;
+  closeMenu();
+  if (btn.dataset.q) return askAbout(btn.dataset.q, ticket);
+  if (btn.dataset.act === "open") return openWorker(ticket);
+  if (btn.dataset.act === "type") {
+    selected = ticket;                 // scope the box to this worker
+    $("ask").placeholder = `ask about ${ticket}…`;
+    $("ask").focus();
+  }
+});
+
+document.addEventListener("click", (e) => { if (!e.target.closest("#menu")) closeMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
 
 async function poll() {
   try {
