@@ -191,3 +191,39 @@ test("the payload carries the standing instructions and the recent thread", asyn
   expect(p.instructions?.map((i) => i.text)).toEqual(["gatemd first this week"]);
   expect(p.dialog?.map((e) => e.from)).toEqual(["jaime", "ambrosio"]);
 });
+
+// --- Clicking a piece of finished work opens its whole context ------------------
+// "I need to be able to click this and be able to get more context about it."
+
+describe("buildTicketDetail", () => {
+  const ticket = { id: "gmc-axx", repo: "gatemd", title: "spinner tests", status: "in_review", priority: 3,
+    description: "The tests fail under FORCE_COLOR.", acceptance_criteria: "When FORCE_COLOR=0, tests pass\nWhen FORCE_COLOR=1, tests pass", external_ref: "https://linear.app/x/VRT-1" };
+  const b = () => board({ all: [ticket as any], accept: [ticket as any], landable: { "gmc-axx": { ok: false, pr: { number: 161, url: "u" }, reasons: ["open defects: gmc-sz7"], at: "" } } });
+  const deps = {
+    comments: () => [
+      { id: "1", author: "j", text: "Ambrosio dry run", created_at: "2026-09-07T15:53:00Z" },
+      { id: "2", author: "j", text: "https://github.com/x/y/pull/161 · tests 19/19 · Verity: pending · reviewer: ACCEPT", created_at: "2026-09-07T16:04:00Z" },
+    ],
+    defects: () => [{ id: "gmc-sz7", title: "spinner nit", status: "open" }],
+    file: (_c: any, _r: any, _i: any, name: string) => (name === "evidence.md" ? "# Evidence\n\nline 1\nline 2\n" : name === "plan.md" ? "# Plan\n\nstep 1\n" : null),
+  };
+
+  test("carries the ticket, its criteria one per line, the hand-over, landable, defects and evidence", async () => {
+    const { buildTicketDetail } = await import("../src/ui.ts");
+    const d = buildTicketDetail(cfg, b(), "gatemd", "gmc-axx", deps)!;
+    expect(d.ticket.acceptance).toEqual(["When FORCE_COLOR=0, tests pass", "When FORCE_COLOR=1, tests pass"]);
+    expect(d.handover).toContain("tests 19/19");
+    expect(d.landable?.reasons).toEqual(["open defects: gmc-sz7"]);
+    expect(d.defects.map((x) => x.id)).toEqual(["gmc-sz7"]);
+    expect(d.evidence).toContain("line 2");
+    expect(d.plan).toContain("step 1");
+    expect(d.externalRef).toBe("https://linear.app/x/VRT-1");
+  });
+
+  test("an unknown ticket is null, and missing files are empty rather than errors", async () => {
+    const { buildTicketDetail } = await import("../src/ui.ts");
+    expect(buildTicketDetail(cfg, b(), "gatemd", "nope", deps)).toBeNull();
+    const d = buildTicketDetail(cfg, b(), "gatemd", "gmc-axx", { ...deps, file: () => null })!;
+    expect(d.evidence).toBe("");
+  });
+});

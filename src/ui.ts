@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AmbrosioConfig } from "./config.ts";
 import type { Board } from "./board.ts";
@@ -16,6 +16,8 @@ import { isAfterHours } from "./afterhours.ts";
 import * as journal from "./journal.ts";
 import { dispatchTicket } from "./dispatch.ts";
 import { canDispatch, wipUsed } from "./board.ts";
+import * as tracker from "./tracker.ts";
+import { repoByName } from "./config.ts";
 import { readDialog, standing, retire, type Entry } from "./standing.ts";
 import { say } from "./dialog.ts";
 import { realDeps, routeReply } from "./watch.ts";
@@ -26,7 +28,7 @@ import { realDeps, routeReply } from "./watch.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "11";
+export const UI_VERSION = "12";
 
 /** How much of the thread the page shows; the file keeps all of it. */
 const DIALOG_TAIL = 40;
@@ -163,6 +165,77 @@ export type UiWorkerDetail = {
  * One worker, in full: what it is doing right now, the ticket it is doing it
  * for, and anything it has parked for Jaime.
  */
+export type UiTicketDetail = {
+  ticket: { id: string; repo: string; title: string; status: string; priority: number; description?: string; acceptance: string[] };
+  externalRef?: string;
+  /** The worker's own hand-over line: PR, tests, Verity, reviewer. */
+  handover: string;
+  comments: { author: string; text: string; at: string }[];
+  landable?: { ok: boolean; pr: { number: number; url: string } | null; reasons: string[] };
+  defects: { id: string; title: string; status: string }[];
+  plan: string;
+  evidence: string;
+  worker?: UiWorker;
+};
+
+export type TicketDetailDeps = {
+  comments: (cfg: AmbrosioConfig, repo: string, id: string) => { id: string; author: string; text: string; created_at: string }[];
+  defects: (cfg: AmbrosioConfig, repo: string, id: string) => { id: string; title: string; status: string }[];
+  /** A file from the ticket's work dir, or null if it does not exist. */
+  file: (cfg: AmbrosioConfig, repo: string, id: string, name: string) => string | null;
+};
+
+const realTicketDeps: TicketDetailDeps = {
+  comments: (cfg, repo, id) => tracker.comments(repoByName(cfg, repo), id),
+  defects: (cfg, repo, id) => tracker.discoveredFrom(repoByName(cfg, repo), id).map((t) => ({ id: t.id, title: t.title, status: t.status })),
+  file: (cfg, repo, id, name) => {
+    const f = join(journal.workDir(cfg.homeDir, repo, id), name);
+    return existsSync(f) ? readFileSync(f, "utf8") : null;
+  },
+};
+
+/** Keep the last stretch of a work file; the whole thing is on disk. */
+function tail(text: string | null, lines: number): string {
+  if (!text) return "";
+  const all = text.split("\n");
+  return all.slice(Math.max(0, all.length - lines)).join("\n").trim();
+}
+
+/**
+ * Everything Jaime needs to accept or reject one piece of work, in one
+ * place: what was asked, the criteria one by one, what the worker said at
+ * hand-over, whether it can land and why not, what it filed on the way, and
+ * the evidence it wrote. "I need to be able to click this and get more
+ * context about it."
+ */
+export function buildTicketDetail(cfg: AmbrosioConfig, board: Board, repo: string, id: string, deps: TicketDetailDeps = realTicketDeps): UiTicketDetail | null {
+  const t = board.all.find((x) => x.id.toLowerCase() === id.toLowerCase() && (!x.repo || x.repo === repo));
+  if (!t) return null;
+  const comments = safely(() => deps.comments(cfg, repo, t.id), []);
+  const last = comments.length ? comments[comments.length - 1].text : "";
+  const land = board.landable?.[t.id];
+  const payload = buildPayload(cfg, board);
+  return {
+    ticket: {
+      id: t.id, repo, title: t.title, status: t.status, priority: t.priority,
+      description: t.description,
+      acceptance: (t.acceptance_criteria ?? "").split("\n").map((l) => l.trim()).filter(Boolean),
+    },
+    externalRef: t.external_ref,
+    handover: last,
+    comments: comments.slice(-5).map((c) => ({ author: c.author, text: c.text, at: c.created_at })),
+    landable: land ? { ok: land.ok, pr: land.pr ? { number: land.pr.number, url: land.pr.url } : null, reasons: land.reasons } : undefined,
+    defects: safely(() => deps.defects(cfg, repo, t.id), []),
+    plan: tail(safely(() => deps.file(cfg, repo, t.id, "plan.md"), null), 40),
+    evidence: tail(safely(() => deps.file(cfg, repo, t.id, "evidence.md"), null), 60),
+    worker: payload.workers.find((w) => w.name?.toLowerCase() === t.id.toLowerCase()),
+  };
+}
+
+function safely<T>(f: () => T, fallback: T): T {
+  try { return f(); } catch { return fallback; }
+}
+
 export function buildWorkerDetail(
   cfg: AmbrosioConfig,
   board: Board,
@@ -357,6 +430,16 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
           return Response.json({ ok: true, ...r });
         } catch (e) {
           return Response.json({ error: (e as Error).message }, { status: 400 });
+        }
+      }
+
+      const tk = url.pathname.match(/^\/api\/ticket\/([^/]+)\/([^/]+)$/);
+      if (tk) {
+        try {
+          const detail = buildTicketDetail(cfg, collectBoard(cfg), decodeURIComponent(tk[1]), decodeURIComponent(tk[2]));
+          return detail ? Response.json(detail) : Response.json({ error: "no such ticket" }, { status: 404 });
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 500 });
         }
       }
 

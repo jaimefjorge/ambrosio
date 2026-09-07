@@ -43,7 +43,7 @@ function mountFleet() {
     getComputedStyle: () => ({ getPropertyValue: () => "#000" }),
   };
   const api = new Function(...Object.keys(stubs),
-    `${script}\nreturn { render, setMood: butler.setMoodFromBoard, openMenu, askAbout, closeMenu, sayToAmbrosio, showTab };`)(...Object.values(stubs));
+    `${script}\nreturn { render, setMood: butler.setMoodFromBoard, openMenu, askAbout, closeMenu, sayToAmbrosio, showTab, renderTicket, openTicket };`)(...Object.values(stubs));
   return { api, nodes, posted, html: (id: string) => `${nodes[id]?.innerHTML ?? ""}${nodes[id]?.textContent ?? ""}` };
 }
 
@@ -361,5 +361,46 @@ describe("landable on the accept row", () => {
 
   test("without an assessment the row still renders", () => {
     expect(renderPage(acc(undefined)).questions).toContain("waiting for you to accept");
+  });
+});
+
+describe("clicking finished work opens its context", () => {
+  const detail = {
+    ticket: { id: "gmc-axx", repo: "gatemd-core", title: "spinner tests", status: "in_review", priority: 3, description: "Tests fail under FORCE_COLOR.", acceptance: ["When FORCE_COLOR=0, tests pass", "When FORCE_COLOR=1, tests pass"] },
+    externalRef: "https://linear.app/x/VRT-1",
+    handover: "https://github.com/x/y/pull/161 · tests 19/19 · Verity: pending · reviewer: ACCEPT",
+    comments: [],
+    landable: { ok: false, pr: { number: 161, url: "https://github.com/x/y/pull/161" }, reasons: ["open defects: gmc-sz7"] },
+    defects: [{ id: "gmc-sz7", title: "spinner nit", status: "open" }],
+    plan: "# Plan\nstep 1",
+    evidence: "## Evidence\nline 1\nline 2",
+  };
+
+  test("the drawer shows what was asked, each criterion, the hand-over, why it cannot land, what it filed, and the evidence", () => {
+    const m = mountFleet();
+    m.api.renderTicket(detail);
+    const body = m.html("d-body");
+    expect(m.html("d-name")).toContain("gmc-axx");
+    expect(body).toContain("Tests fail under FORCE_COLOR.");
+    expect(body).toContain("When FORCE_COLOR=0, tests pass");
+    expect(body).toContain("When FORCE_COLOR=1, tests pass");
+    expect(body).toContain("tests 19/19");
+    expect(body).toContain("open defects: gmc-sz7");
+    expect(body).toContain("spinner nit");
+    expect(body).toContain("line 2");
+    expect(body).toContain("VRT-1");
+  });
+
+  test("opening a ticket asks the ticket route, scoped by repo and id", async () => {
+    const m = mountFleet();
+    await m.api.openTicket("gatemd-core", "gmc-axx");
+    expect(m.posted.some((p) => p.url === "/api/ticket/gatemd-core/gmc-axx")).toBe(true);
+    expect(m.nodes.drawer.hidden).toBe(false);
+  });
+
+  test("the accept row is marked clickable and carries what to open", () => {
+    const out = renderPage({ ...empty, accept: [{ key: "A1", id: "gmc-axx", repo: "gatemd-core", title: "spinner tests", status: "in_review" }] }).questions;
+    expect(out).toContain('data-open="gmc-axx"');
+    expect(out).toContain("details");
   });
 });

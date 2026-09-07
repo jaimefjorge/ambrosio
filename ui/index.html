@@ -85,6 +85,17 @@
   #tabs .badge { display: inline-block; margin-left: 6px; min-width: 14px; padding: 0 4px; border-radius: 8px; background: var(--ink); color: var(--panel); font-size: 10px; text-align: center; }
   #dialog { margin-top: 4px; }
   .q .land { font-size: 12px; margin: 4px 0 2px; }
+  .q .ttl { cursor: pointer; }
+  .q .ttl:hover .more { color: var(--ink); }
+  .q .more { font-size: 11px; color: var(--dim); margin-left: 6px; }
+  #drawer .head.ticket { border-color: var(--ink); }
+  #drawer .pre { white-space: pre-wrap; }
+  #drawer .small { font-size: 11px; color: var(--dim); max-height: 260px; overflow: auto; }
+  #drawer .crit { margin: 0; padding-left: 18px; }
+  #drawer .crit li { margin: 2px 0; }
+  #drawer .land.ok { color: var(--ok, #2a7); }
+  #drawer .land.no { color: var(--failed); }
+  #d-ask { width: 100%; font: inherit; font-size: 12px; padding: 5px 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
   .q .land.ok { color: var(--ok, #2a7); }
   .q .land.no { color: var(--failed); }
   .q .land a { color: inherit; }
@@ -278,7 +289,7 @@
 
 <script src="/butler.js"></script>
 <script>
-const UI_VERSION = "11";       // must match UI_VERSION in src/ui.ts
+const UI_VERSION = "12";       // must match UI_VERSION in src/ui.ts
 const answers = {};            // qid -> draft text, kept across re-renders
 const said = {};               // qid -> what happened when we sent it
 let lastQSig = null;           // questions panel is only rebuilt when it changes
@@ -392,7 +403,7 @@ function render(d) {
         </div>`))
       .concat(d.accept.map((x) => `
         <div class="q" data-decide="accept" data-ticket="${esc(x.id)}" data-repo="${esc(x.repo)}"${x.landable && !x.landable.ok ? ' data-forced="1"' : ""}>
-          <div><span class="key">${esc(x.key)}</span> ${esc(x.title)}</div>
+          <div class="ttl" data-open="${esc(x.id)}" data-repo="${esc(x.repo)}" title="open the details"><span class="key">${esc(x.key)}</span> ${esc(x.title)} <span class="more">details ›</span></div>
           <div class="opts">${esc(x.repo)} ${esc(x.id)} — finished, waiting for you to accept</div>
           ${x.landable ? `<div class="land ${x.landable.ok ? "ok" : "no"}">${
             x.landable.pr ? `<a href="${esc(x.landable.pr.url)}" target="_blank">PR #${esc(String(x.landable.pr.number))}</a> · ` : ""
@@ -524,6 +535,8 @@ async function sendDecision(row, kind) {
 }
 
 $("questions").addEventListener("click", (e) => {
+  const open = e.target.closest("[data-open]");
+  if (open) { openTicket(open.dataset.repo, open.dataset.open); return; }
   const dec = e.target.closest("[data-decide]");
   if (dec && e.target.classList.contains("go")) { sendDecision(dec, e.target.dataset.kind); return; }
   const row = e.target.closest("[data-qid]");
@@ -549,6 +562,7 @@ $("questions").addEventListener("keydown", (e) => {
 });
 
 let selected = null;   // id of the worker whose drawer is showing
+let selectedTicket = null;   // {repo, id} when the drawer shows a ticket instead
 
 /** "BUILD — step 3 of 6", or what it is waiting for. */
 function stageCaption(status) {
@@ -629,6 +643,59 @@ function renderDetail(d) {
   $("d-body").innerHTML = parts.join("");
 }
 
+function renderTicket(d) {
+  const t = d.ticket;
+  $("d-name").textContent = t.id;
+  $("d-state").textContent = t.status + " · P" + t.priority;
+  const head = $("drawer").querySelector(".head");
+  if (head) head.className = "head ticket";
+  const parts = [];
+  parts.push(`<div class="box"><b>${esc(t.title)}</b><br><span style="color:var(--dim)">${esc(t.repo)}${d.externalRef ? ` · <a href="${esc(d.externalRef)}" target="_blank">${esc(d.externalRef.replace(/^https?:\/\//, ""))}</a>` : ""}</span></div>`);
+  if (d.landable) {
+    parts.push('<div class="sub">Can it land?</div>');
+    parts.push(`<div class="box land ${d.landable.ok ? "ok" : "no"}">${d.landable.pr ? `<a href="${esc(d.landable.pr.url)}" target="_blank">PR #${esc(String(d.landable.pr.number))}</a> · ` : ""}${d.landable.ok ? "yes — landable" : "not yet: " + esc(d.landable.reasons.join("; "))}</div>`);
+  }
+  if (t.description) { parts.push('<div class="sub">What was asked</div>'); parts.push(`<div class="box pre">${esc(t.description)}</div>`); }
+  if (t.acceptance.length) {
+    parts.push('<div class="sub">Done when</div>');
+    parts.push(`<div class="box"><ol class="crit">${t.acceptance.map((a) => `<li>${esc(a)}</li>`).join("")}</ol></div>`);
+  }
+  if (d.handover) { parts.push('<div class="sub">What the worker said at hand-over</div>'); parts.push(`<div class="box pre">${esc(d.handover)}</div>`); }
+  if (d.defects.length) {
+    parts.push('<div class="sub">Filed on the way</div>');
+    parts.push(`<div class="box">${d.defects.map((x) => `<div><b>${esc(x.id)}</b> ${esc(x.title)} <span style="color:var(--dim)">· ${esc(x.status)}</span></div>`).join("")}</div>`);
+  }
+  if (d.evidence) { parts.push('<div class="sub">Evidence (tail)</div>'); parts.push(`<div class="box pre small">${esc(d.evidence)}</div>`); }
+  if (d.plan) { parts.push('<div class="sub">Plan (tail)</div>'); parts.push(`<div class="box pre small">${esc(d.plan)}</div>`); }
+  parts.push(`<div class="sub">Ask Ambrosio about this</div><div class="box"><input id="d-ask" placeholder="why is it not landable? what did the reviewer say?"><div id="d-answer" class="pre"></div></div>`);
+  $("d-body").innerHTML = parts.join("");
+  const ask = document.getElementById("d-ask");
+  if (ask) ask.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter" || !ask.value.trim()) return;
+    const out = document.getElementById("d-answer");
+    out.textContent = "…";
+    try {
+      const r = await fetch("/api/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: ask.value.trim(), ticket: t.id }) });
+      out.textContent = (await r.json()).answer;
+    } catch (err) { out.textContent = "Could not ask: " + err.message; }
+  });
+}
+
+async function openTicket(repo, id) {
+  selected = null;
+  selectedTicket = { repo, id };
+  $("drawer").hidden = false;
+  $("d-body").innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const r = await fetch("/api/ticket/" + encodeURIComponent(repo) + "/" + encodeURIComponent(id));
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    renderTicket(d);
+  } catch (e) {
+    $("d-body").innerHTML = `<div class="empty">Could not load: ${esc(e.message)}</div>`;
+  }
+}
+
 async function loadDetail() {
   if (!selected) return;
   try {
@@ -641,6 +708,7 @@ async function loadDetail() {
 }
 
 function openWorker(id) {
+  selectedTicket = null;
   selected = id;
   $("drawer").hidden = false;
   $("d-body").innerHTML = '<div class="empty">Loading…</div>';
@@ -650,6 +718,7 @@ function openWorker(id) {
 
 function closeWorker() {
   selected = null;
+  selectedTicket = null;
   $("drawer").hidden = true;
   poll();
 }
