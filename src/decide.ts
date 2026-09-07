@@ -63,7 +63,7 @@ export function deliverPendingFeedback(
 }
 
 export type Decision =
-  | { kind: "accept"; ticket: string; repo: string; note?: string }
+  | { kind: "accept"; ticket: string; repo: string; note?: string; force?: boolean }
   | { kind: "reject"; ticket: string; repo: string; note?: string }
   | { kind: "plan_ok"; ticket: string; repo: string; note?: string }
   | { kind: "plan_change"; ticket: string; repo: string; note?: string };
@@ -74,6 +74,8 @@ export type DecideDeps = {
   transition: (cfg: AmbrosioConfig, repo: string, ticket: string, status: string) => void;
   resume: (cfg: AmbrosioConfig, ticket: string, repo: string, text: string) => "resumed" | "deferred";
   journal: (cfg: AmbrosioConfig, line: string) => void;
+  /** Defects discovered while doing this ticket that are still open. */
+  openDefects: (cfg: AmbrosioConfig, repo: string, ticket: string) => { id: string; title: string }[];
 };
 
 export const realDecideDeps: DecideDeps = {
@@ -82,6 +84,7 @@ export const realDecideDeps: DecideDeps = {
   transition: (cfg, repo, ticket, status) => tracker.transition(repoByName(cfg, repo), ticket, status),
   resume: (cfg, ticket, repo, text) => deliverAnswer(cfg, { ticket, repo, text }),
   journal: (cfg, line) => journal.append(cfg.homeDir, line),
+  openDefects: (cfg, repo, ticket) => tracker.openDefects(repoByName(cfg, repo), ticket),
 };
 
 /**
@@ -130,8 +133,19 @@ export function applyDecision(
 
   switch (d.kind) {
     case "accept": {
-      deps.close(cfg, d.repo, d.ticket, `accepted by Jaime${note ? `: ${note}` : ""}`);
-      deps.journal(cfg, `${d.ticket} accepted and closed${note ? ` (${note})` : ""}`);
+      // Work with known defects does not get accepted, and therefore does not
+      // reach main. Jaime can overrule it; Ambrosio never does it quietly.
+      const defects = deps.openDefects(cfg, d.repo, d.ticket);
+      if (defects.length > 0 && !d.force) {
+        throw new DecideError(
+          `${d.ticket} filed ${defects.length} defect${defects.length > 1 ? "s" : ""} that ${defects.length > 1 ? "are" : "is"} still open: ` +
+            defects.map((x) => `${x.id} (${x.title.slice(0, 60)})`).join("; ") +
+            `. Close or defer them first, or accept anyway if you have decided they do not block this.`,
+        );
+      }
+      const over = defects.length > 0 ? ` over ${defects.length} open defect${defects.length > 1 ? "s" : ""}` : "";
+      deps.close(cfg, d.repo, d.ticket, `accepted by Jaime${over}${note ? `: ${note}` : ""}`);
+      deps.journal(cfg, `${d.ticket} accepted and closed${over}${note ? ` (${note})` : ""}`);
       return { ticket: d.ticket, outcome: "closed" };
     }
 

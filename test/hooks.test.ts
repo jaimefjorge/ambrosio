@@ -213,3 +213,31 @@ test("permission-guard resolves the ticket the same way", () => {
 
   expect(queued()).toMatchObject({ ticket: "gmc-gfh", repo: "gatemd", kind: "permission", urgent: true });
 }, HOOK_TIMEOUT);
+
+// --- Merging is the final stage, and it is Jaime's -------------------------
+
+const bashPayload = (command: string) => ({ session_id: "s", cwd: "/tmp", tool_name: "Bash", tool_input: { command } });
+const denied = (command: string) => {
+  const r = run("bash-guard.sh", bashPayload(command));
+  const out = r.out.trim();
+  return out ? JSON.parse(out).hookSpecificOutput?.permissionDecision === "deny" : false;
+};
+
+test("a worker may not merge a pull request", () => {
+  expect(denied("gh pr merge 157 --squash")).toBe(true);
+  expect(denied("gh pr merge --auto 157")).toBe(true);
+}, HOOK_TIMEOUT);
+
+test("a worker may not merge into main by any route", () => {
+  expect(denied("git merge main")).toBe(true);
+  expect(denied("git merge origin/main --no-ff")).toBe(true);
+  expect(denied("git checkout main && git merge feature")).toBe(true);
+}, HOOK_TIMEOUT);
+
+test("ordinary git work is still allowed", () => {
+  expect(denied("git merge --abort")).toBe(false);
+  expect(denied("git rebase origin/main")).toBe(false);
+  expect(denied("gh pr create --draft --title x")).toBe(false);
+  expect(denied("gh pr view 157")).toBe(false);
+  expect(denied("git push origin worktree-gmc-4or")).toBe(false);
+}, HOOK_TIMEOUT);

@@ -1,4 +1,6 @@
-function createButler(canvas, opts = {}) {
+// Ambrosio, the butler. A 24x24 sprite drawn a pixel at a time, shared by the
+// fleet view, the morning brief, and each worker's place in the cycle.
+
 // Ambrosio, the butler. A 24x24 sprite drawn a pixel at a time, shared by the
 // fleet view and the morning brief.
 // --- Ambrosio ---------------------------------------------------------------
@@ -34,6 +36,71 @@ function pickPalette() {
 pickPalette();
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { pickPalette(); drawScene(); });
 
+
+/** Paint one sprite onto any context, a pixel at a time. */
+function stampOn(cx, rows, ox, oy, flip) {
+  const w = rows[0].length;
+  rows.forEach((row, y) => {
+    for (let x = 0; x < w; x++) {
+      const ch = row[x];
+      if (ch === ".") continue;
+      const colour = PAL[ch];
+      if (!colour) continue;
+      cx.fillStyle = colour;
+      cx.fillRect(ox + (flip ? w - 1 - x : x), oy + y, 1, 1);
+    }
+  })
+}
+
+/**
+ * Where a ticket stands, drawn as a track with the butler standing on it.
+ * Behind him the stops are filled; ahead of him they are hollow.
+ */
+const STAGES = ["planning", "plan_review", "in_progress", "verifying", "in_review", "accepted"];
+const STAGE_LABELS = {
+  planning: "plan", plan_review: "your ok", in_progress: "build",
+  verifying: "verify", in_review: "your call", accepted: "done",
+};
+
+function stageOf(status) {
+  const s = (status || "").toLowerCase();
+  if (s === "open") return { index: 0, parked: false, started: false };
+  if (s === "needs_input" || s === "blocked") return { index: 2, parked: true, started: true };
+  if (s === "closed" || s === "accepted" || s === "done") return { index: 5, parked: false, started: true };
+  const i = STAGES.indexOf(s);
+  return { index: i === -1 ? 2 : i, parked: false, started: true };
+}
+
+function drawStageTrack(canvas, status) {
+  pickPalette();
+  const cx = canvas.getContext("2d");
+  cx.imageSmoothingEnabled = false;
+  cx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const { index, parked, started } = stageOf(status);
+  const gap = 24, first = 13, trackY = 30;
+
+  for (let i = 0; i < STAGES.length; i++) {
+    const x = first + i * gap;
+    if (i < STAGES.length - 1) {
+      for (let dx = 2; dx < gap - 1; dx++) {
+        cx.fillStyle = i < index ? PAL.g : PAL.H;
+        cx.fillRect(x + dx, trackY, 1, 1);
+      }
+    }
+    // A parked stop is marked red: he stopped there and is waiting on Jaime.
+    cx.fillStyle = i < index ? PAL.g : i === index ? (parked ? PAL.r : PAL.o) : PAL.H;
+    cx.fillRect(x - 1, trackY - 1, 3, 3);
+    if (i === index) { cx.fillRect(x - 2, trackY - 2, 5, 1); cx.fillRect(x - 2, trackY + 2, 5, 1); }
+  }
+
+  // Parked: he stops and presents. Done: he bows. Otherwise he is walking it along.
+  const pose = parked ? "stand" : index === 5 ? "bow" : started ? "walk" : "stand";
+  stampOn(cx, SPRITES[pose], first + index * gap - 12, 3);
+  if (parked) stampOn(cx, TRAY, first + index * gap - 6, 11);
+}
+
+function createButler(canvas, opts = {}) {
 const pet = {
   x: 12, dir: 1, mood: "idle", pose: "stand",
   hold: 0,        // ticks left in the current pose
@@ -179,3 +246,4 @@ setInterval(tick, 130);   // 8fps, the way these things moved
 
   return { setMood, setMoodFromBoard, moodOf: () => pet.mood, pet };
 }
+

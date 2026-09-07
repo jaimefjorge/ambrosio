@@ -27,6 +27,8 @@ function renderPage(payload: any): Record<string, string> {
     getElementById: node,
     addEventListener() {},
     querySelector: () => null,
+    // The worker cards each carry a stage-track canvas that render() paints.
+    querySelectorAll: () => [],
     documentElement: { dataset: {} },
     body: {},
   };
@@ -104,4 +106,35 @@ test("the page and the server agree on the API version", () => {
   const server = /UI_VERSION = "(\d+)"/.exec(readFileSync(join(rootDir(), "src", "ui.ts"), "utf8"))![1];
   const page = /UI_VERSION = "(\d+)"/.exec(readFileSync(join(rootDir(), "ui", "index.html"), "utf8"))![1];
   expect(page).toBe(server);
+});
+
+describe("where a worker stands in the cycle", () => {
+  const withWorker = (ticketStatus: string) => renderPage({
+    ...empty,
+    workers: [{ id: "a1", name: "gmc-4or", state: "working", cwd: "/w", title: "Fresh-repo e2e", repo: "gatemd-core", ticketStatus }],
+  }).workers;
+
+  test("each worker gets a track drawn for its ticket's stage", () => {
+    expect(withWorker("in_progress")).toContain('class="stage"');
+    expect(withWorker("in_progress")).toContain('data-status="in_progress"');
+  });
+
+  test("the caption names the stage and its place in the cycle", () => {
+    expect(withWorker("in_progress")).toContain("build");
+    expect(withWorker("in_progress")).toContain("step 3 of 6");
+    expect(withWorker("in_review")).toContain("your call");
+    expect(withWorker("planning")).toContain("step 1 of 6");
+  });
+
+  test("a parked worker says it is waiting on Jaime, not that it is building", () => {
+    const out = withWorker("needs_input");
+    expect(out).toContain("parked");
+    expect(out).toContain("waiting on you");
+    expect(out).not.toContain("step 3 of 6");
+  });
+
+  test("a worker with no ticket gets no track rather than a wrong one", () => {
+    const out = renderPage({ ...empty, workers: [{ id: "a1", name: "x", state: "done", cwd: "/w" }] }).workers;
+    expect(out).not.toContain('class="stage"');
+  });
 });

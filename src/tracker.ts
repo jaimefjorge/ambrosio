@@ -158,6 +158,27 @@ export function close(repo: RepoConfig, id: string, reason: string): void {
 }
 
 /** Tickets a human has to look at, across one repo. */
+/**
+ * Issues discovered while doing this one — the defects a worker filed as it
+ * went. Beads records them as dependents (`--direction up`), so a ticket knows
+ * what came out of it.
+ */
+export function discoveredFrom(repo: RepoConfig, id: string): Ticket[] {
+  try {
+    return bdJson<Ticket[]>(repo, ["dep", "list", id, "--direction", "up"]) ?? [];
+  } catch {
+    // A ticket with no links makes bd exit non-zero on some versions; that is
+    // not a reason to block an acceptance.
+    return [];
+  }
+}
+
+/** Of those, the ones still open. Accepting over these is the thing to refuse. */
+export function openDefects(repo: RepoConfig, id: string): Ticket[] {
+  const done = new Set(["closed", "accepted", "done", "deferred"]);
+  return discoveredFrom(repo, id).filter((t) => !done.has((t.status ?? "").toLowerCase()));
+}
+
 export function needsHuman(repo: RepoConfig): Ticket[] {
   return list(repo, [...HUMAN_STATUSES]);
 }

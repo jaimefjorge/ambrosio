@@ -23,6 +23,8 @@ Built against Claude Code 2.1.263, Beads 1.2.2 (Dolt 2.3.2), Bun 1.3.13, macOS.
 | Replies routed in seconds, not at the top of the hour | Tested | `test/watch.test.ts`: answers resume the worker with no model in the loop, judgment cases wake the manager once per burst |
 | Ambrosio himself, in the corner of the fleet view | Working | A 24x24 pixel butler who wanders, bows when clicked, and lifts his tray when a question is waiting; theme-aware so he does not vanish on a dark ground |
 | Morning brief | Working | Choose the day's projects and say what it is for, then see only that: carryover from the journal, PRs ranked by what they need, Linear when a key is set, Verity, what is ready to start — then pick today's work and dispatch it |
+| Work with known defects cannot be accepted | Tested, verified live | `bd dep list <id> --direction up` gives the defects discovered from a ticket; accepting is refused while any are open. Confirmed against gmc-4or, which has four |
+| Where each worker stands in the cycle | Working | Each card draws the butler on a six-stop track (plan, your ok, build, verify, your call, done); a parked stop is red and he presents the tray |
 | Live fleet view | Working | `bin/ambrosio start` (or `ui`) on 127.0.0.1, polling `/api/board`; `test/ui.test.ts` covers the payload |
 | The fleet view's own rendering | Tested | `test/ui-render.test.ts` runs the page's script against a stub DOM and asserts what NEEDS YOU shows; the page was the one part no test executed, and it had shipped two faults that read fine in review |
 | Approving a plan or accepting finished work, from the view or from Messages | Fixed, tested | `src/decide.ts` is shared by the CLI, the watcher and the view; the fleet view had been showing only parked questions, so two tickets sat in review under "nothing waiting on you" |
@@ -31,7 +33,7 @@ Built against Claude Code 2.1.263, Beads 1.2.2 (Dolt 2.3.2), Bun 1.3.13, macOS.
 | A question is filed against the worker that actually asked it | Fixed, regression-tested | `worker/hooks/resolve-ticket.sh` prefers the session id, then the worktree path, then the env var; verified against the two live sessions that misfired |
 | Reading what Jaime texts | **Fixed, verified against the real database** | `bin/ambrosio inbox` returned a `status` message the channel plugin had silently dropped; a send immediately afterwards was not read back |
 
-193 tests, all passing.
+205 tests, all passing.
 
 ## The inbound channel does not work on this Mac, so Ambrosio reads Messages itself
 

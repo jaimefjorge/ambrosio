@@ -15,6 +15,7 @@ function spy(over: Partial<DecideDeps> = {}) {
     transition: (_c, _r, id, status) => log.push(`status:${id}:${status}`),
     resume: (_c, ticket, _repo, text) => { log.push(`resume:${ticket}:${text}`); return "resumed"; },
     journal: (_c, line) => log.push(`journal:${line}`),
+    openDefects: () => [],
     ...over,
   };
   return { deps, log };
@@ -128,5 +129,42 @@ describe("feedback that could not be handed over", () => {
     const c = home();
     applyDecision(c, { kind: "accept", ...at }, spy().deps);
     expect(pendingFeedback(c)).toHaveLength(0);
+  });
+});
+
+describe("accepting work that still has known defects", () => {
+  const withDefects = (defects: any[]) => spy({ openDefects: () => defects });
+
+  test("is refused, and names them", () => {
+    const { deps } = withDefects([
+      { id: "gmc-vxt", title: "/verity:setup never runs init --plugin-mode", status: "open" },
+      { id: "gmc-br5", title: "a repo with no origin gets an inert gate", status: "open" },
+    ]);
+    expect(() => applyDecision(cfg, { kind: "accept", ...at }, deps)).toThrow(/gmc-vxt/);
+    expect(() => applyDecision(cfg, { kind: "accept", ...at }, deps)).toThrow(/gmc-br5/);
+  });
+
+  test("nothing is closed when it is refused", () => {
+    const { deps, log } = withDefects([{ id: "gmc-vxt", title: "x", status: "open" }]);
+    try { applyDecision(cfg, { kind: "accept", ...at }, deps); } catch {}
+    expect(log).toEqual([]);
+  });
+
+  test("Jaime can still override, because it is his call in the end", () => {
+    const { deps, log } = withDefects([{ id: "gmc-vxt", title: "x", status: "open" }]);
+    const r = applyDecision(cfg, { kind: "accept", ...at, force: true }, deps);
+
+    expect(r.outcome).toBe("closed");
+    expect(log.find((l) => l.startsWith("close:"))).toContain("over 1 open defect");
+  });
+
+  test("defects that are already closed do not stand in the way", () => {
+    const { deps } = withDefects([]);
+    expect(applyDecision(cfg, { kind: "accept", ...at }, deps).outcome).toBe("closed");
+  });
+
+  test("rejecting is never blocked by defects — that is the point of rejecting", () => {
+    const { deps } = withDefects([{ id: "gmc-vxt", title: "x", status: "open" }]);
+    expect(applyDecision(cfg, { kind: "reject", ...at, note: "fix these first" }, deps).outcome).toBe("resumed");
   });
 });

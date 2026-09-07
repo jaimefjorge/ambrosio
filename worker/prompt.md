@@ -42,10 +42,15 @@ Run every one of these and capture the output as evidence:
    - The Verity Stop hook runs automatically in this repo. You must reach **PASS**. Fix what it reports; do not argue with it and never use `--no-verify`.
    If anything fails, go back to step 2. Do not proceed with a red result.
 
-4. **Hand over.** Push your branch, open a **draft** PR titled `{{TICKET_ID}}: {{TITLE}}`, then:
+4. **File what you found.** Every defect you hit that you are not fixing in this ticket becomes its own ticket, linked to yours so it is visible at acceptance:
+   `bd -C {{REPO_PATH}} create -t bug --title "<what breaks, in one line>"`
+   `bd -C {{REPO_PATH}} dep <new-id> --blocks {{TICKET_ID}} --type discovered-from`
+   List their ids in `{{WORK_DIR}}/evidence.md`. Do not bury a defect in a comment: Ambrosio refuses to accept a ticket whose discovered defects are still open, and that only works if you linked them.
+
+5. **Hand over.** Push your branch, open a **draft** PR titled `{{TICKET_ID}}: {{TITLE}}`, then:
    `bd -C {{REPO_PATH}} update {{TICKET_ID}} --status in_review`
    `bd -C {{REPO_PATH}} comment {{TICKET_ID}} "<PR url> · tests <n/n> · Verity <verdict> · reviewer: <one line>"`
-   Then stop. **Never merge. Never close the ticket. Never push to main.** Acceptance is Jaime's, and only his.
+   Then stop. **Never merge, and never mark a PR ready to merge.** Merging into main is the last stage of the cycle and it is Jaime's alone, taken only once nothing known is broken. **Never close the ticket. Never push to main.**
 
 # When you need a human
 

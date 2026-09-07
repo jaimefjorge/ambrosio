@@ -31,7 +31,11 @@ test("the worker prompt carries the ticket, criteria, verify commands and parkin
   expect(p).toContain("bun test");
   expect(p).toContain("bun run lint");
   expect(p).toContain("needs_input");
-  expect(p).toContain("Never merge. Never close the ticket.");
+  expect(p).toContain("Never merge, and never mark a PR ready to merge.");
+  expect(p).toContain("Never close the ticket.");
+  // Acceptance is refused while discovered defects are open, which only works
+  // if the worker links them.
+  expect(p).toContain("--type discovered-from");
   expect(p).toContain(workDirFor(c, repo, "c-a1b"));
   expect(p).toContain("150");
 });

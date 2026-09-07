@@ -25,8 +25,17 @@ fi
 if printf '%s' "$CMD" | grep -qE 'git[[:space:]]+reset[[:space:]]+--hard[[:space:]]+(origin/)?(main|master)\b'; then
   deny "Blocked: hard reset onto a shared branch destroys work. Rebase or ask via a question instead."
 fi
-if printf '%s' "$CMD" | grep -qE 'git[[:space:]]+(merge|rebase)[^|;&]*--(no-ff|onto)?[^|;&]*\bmain\b.*&&.*push'; then
-  deny "Blocked: merging into main is Jaime's call."
+# Merging is the final stage and it is Jaime's, not a worker's. This covers the
+# PR route as well as the git one, because a green PR with known defects behind
+# it is exactly what must not land on main by itself.
+if printf '%s' "$CMD" | grep -qE '\bgh[[:space:]]+pr[[:space:]]+merge\b'; then
+  deny "Blocked: merging a PR is Jaime's call, and never happens while defects found in that work are still open. Hand over the draft PR instead."
+fi
+if printf '%s' "$CMD" | grep -qE 'git[[:space:]]+merge\b[^|;&]*\b(main|master|origin/(main|master))\b'; then
+  deny "Blocked: merging into main is Jaime's call. Hand over your branch and let him decide."
+fi
+if printf '%s' "$CMD" | grep -qE 'git[[:space:]]+checkout[[:space:]]+(main|master)\b[^|;&]*&&[^|;&]*git[[:space:]]+merge'; then
+  deny "Blocked: merging into main is Jaime's call. Hand over your branch and let him decide."
 fi
 
 exit 0

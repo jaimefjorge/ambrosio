@@ -53,6 +53,10 @@
   .title { margin-top: 3px; }
   .meta { margin-top: 6px; font-size: 12px; color: var(--dim); display: flex; gap: 12px; flex-wrap: wrap; }
   .detail { margin-top: 6px; font-size: 12px; color: var(--dim); border-left: 2px solid var(--line); padding-left: 8px; }
+  .stage { image-rendering: pixelated; width: 300px; max-width: 100%; height: 68px; display: block; margin: 8px 0 0 -6px; }
+  .stagenow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-top: -4px; }
+  .stagenow b { color: var(--ink); font-weight: 600; }
+  .stagenow.parked b { color: var(--blocked); }
 
   .q { padding: 10px 12px; border-bottom: 1px solid var(--line); }
   .q:last-child { border-bottom: 0; }
@@ -298,8 +302,13 @@ function render(d) {
             ${w.tokens ? `<span>${tokens(w.tokens)}</span>` : ""}
           </div>
           ${w.detail ? `<div class="detail">${esc(w.detail)}</div>` : ""}
+          ${w.ticketStatus ? `<canvas class="stage" width="150" height="34" data-status="${esc(w.ticketStatus)}"></canvas>
+          <div class="stagenow ${stageOf(w.ticketStatus).parked ? "parked" : ""}">${stageCaption(w.ticketStatus)}</div>` : ""}
         </div>`).join("")}</div>`
     : '<div class="panel empty">No workers running.</div>';
+
+  // Each worker shows where its ticket stands, with the butler on the track.
+  for (const c of document.querySelectorAll("canvas.stage")) drawStageTrack(c, c.dataset.status);
 
   $("tickets").innerHTML = d.tickets.length
     ? `<table>${d.tickets.map((t) => `
@@ -343,6 +352,9 @@ async function sendDecision(row, kind) {
   const input = row.querySelector("input");
   const note = input.value.trim();
   const id = row.dataset.ticket;
+  // Accepting over known defects is deliberate: the first click is refused and
+  // names them, the second one goes through.
+  const force = kind === "accept" && row.dataset.forced === "1";
 
   const buttons = row.querySelectorAll("button");
   buttons.forEach((b) => (b.disabled = true));
@@ -351,7 +363,7 @@ async function sendDecision(row, kind) {
     const r = await fetch("/api/decide", {
       method: "POST",
       headers: { "content-type": "application/json", "x-ambrosio": "1" },
-      body: JSON.stringify({ kind, ticket: id, repo: row.dataset.repo, note }),
+      body: JSON.stringify({ kind, ticket: id, repo: row.dataset.repo, note, force }),
     });
     const res = await r.json();
     if (!r.ok || res.error) throw new Error(res.error || "failed");
@@ -363,9 +375,14 @@ async function sendDecision(row, kind) {
     lastQSig = null;
   } catch (e) {
     said[id] = "! " + e.message;
+    if (kind === "accept" && /still open/.test(e.message)) {
+      row.dataset.forced = "1";
+      const btn = row.querySelector('button[data-kind="accept"]');
+      if (btn) btn.textContent = "accept anyway";
+    }
   } finally {
     buttons.forEach((b) => (b.disabled = false));
-    poll();
+    if (!said[id]?.startsWith("!")) poll();
   }
 }
 
@@ -395,6 +412,14 @@ $("questions").addEventListener("keydown", (e) => {
 });
 
 let selected = null;   // id of the worker whose drawer is showing
+
+/** "BUILD — step 3 of 6", or what it is waiting for. */
+function stageCaption(status) {
+  const { index, parked } = stageOf(status);
+  if (parked) return "<b>parked</b> — waiting on you";
+  const label = STAGE_LABELS[STAGES[index]] ?? status;
+  return `<b>${esc(label)}</b> — step ${index + 1} of ${STAGES.length}`;
+}
 
 function evLabel(e) {
   if (e.kind === "tool_use") return e.tool || "tool";
