@@ -52,6 +52,13 @@ Run every one of these and capture the output as evidence:
    `bd -C {{REPO_PATH}} comment {{TICKET_ID}} "<PR url> · tests <n/n> · Verity <verdict> · reviewer: <one line>"`
    Then stop. **Never merge, and never mark a PR ready to merge.** Merging into main is the last stage of the cycle and it is Jaime's alone, taken only once nothing known is broken. **Never close the ticket. Never push to main.**
 
+# What Jaime has asked us to do better
+
+These come from his end-of-day reviews. They apply to you, now, and they
+outrank habit:
+
+{{LESSONS}}
+
 # When you need a human
 
 You cannot talk to Jaime and he is not watching. If you call the question tool it will be recorded for his next digest and denied — that is working as intended, not an error.

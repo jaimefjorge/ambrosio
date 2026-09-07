@@ -3,7 +3,10 @@ import { drain, onePass, type WatchDeps } from "../src/watch.ts";
 import type { AmbrosioConfig } from "../src/config.ts";
 import type { InboundMessage } from "../src/inbox.ts";
 
-const cfg = { homeDir: "/tmp/ambrosio-test", imessage: { handle: "+15550001111" } } as AmbrosioConfig;
+const cfg = {
+  homeDir: "/tmp/ambrosio-test", imessage: { handle: "+15550001111" }, wipLimit: 3,
+  hours: { planning: "09:00", digestFrom: "09:00", digestTo: "14:00", wrapUp: "15:00" },
+} as AmbrosioConfig;
 
 function msg(text: string, rowid = 1): InboundMessage {
   return { rowid, text, at: new Date(), fromMe: true };

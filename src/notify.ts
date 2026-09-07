@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { withinHours, type AmbrosioConfig } from "./config.ts";
+import { hhmm, withinHours, type AmbrosioConfig } from "./config.ts";
+import { reviewDue as isReviewDue } from "./review.ts";
 import { hasDecisions, renderDigest, renderUrgent, type BoardState } from "./digest.ts";
 import { collectBoard } from "./board.ts";
 import * as imessage from "./imessage.ts";
@@ -8,7 +9,7 @@ import * as journal from "./journal.ts";
 import * as queue from "./queue.ts";
 import type { QueueItem } from "./queue.ts";
 
-export type NotifyState = { lastDigestHour?: string; urgentSent?: string[] };
+export type NotifyState = { lastDigestHour?: string; urgentSent?: string[]; reviewAskedOn?: string };
 
 export type NotifyDeps = {
   now: () => Date;
@@ -16,6 +17,8 @@ export type NotifyDeps = {
   urgentOpen: (cfg: AmbrosioConfig) => QueueItem[];
   sendDigest: (cfg: AmbrosioConfig, board: BoardState) => void;
   sendUrgent: (cfg: AmbrosioConfig, item: QueueItem) => void;
+  reviewDue: (cfg: AmbrosioConfig, now: Date) => boolean;
+  sendReviewAsk: (cfg: AmbrosioConfig) => void;
   readState: (cfg: AmbrosioConfig) => NotifyState;
   writeState: (cfg: AmbrosioConfig, s: NotifyState) => void;
 };
@@ -36,11 +39,27 @@ export function hourKey(d: Date): string {
  *   - if a digest already went out this hour, an urgent question still gets
  *     through on its own
  */
-export function notifyPass(cfg: AmbrosioConfig, deps: NotifyDeps): { digest: boolean; urgent: string[] } {
-  const now = deps.now();
-  if (!withinHours(cfg, now)) return { digest: false, urgent: [] };
+/** The wrap-up ask belongs to the end of the day, not to the evening. */
+const REVIEW_WINDOW_MIN = 4 * 60;
 
+export function notifyPass(cfg: AmbrosioConfig, deps: NotifyDeps): { digest: boolean; urgent: string[]; reviewAsked: boolean } {
+  const now = deps.now();
   const state = deps.readState(cfg);
+  const day = hourKey(now).slice(0, 10);
+
+  // Asking how the day went is the one thing that happens *after* hours, and
+  // only in a window: it closes the working day rather than interrupting the
+  // evening.
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const wrap = hhmm(cfg.hours.wrapUp);
+  let reviewAsked = false;
+  if (mins >= wrap && mins < wrap + REVIEW_WINDOW_MIN && state.reviewAskedOn !== day && deps.reviewDue(cfg, now)) {
+    deps.sendReviewAsk(cfg);
+    deps.writeState(cfg, { ...state, reviewAskedOn: day });
+    reviewAsked = true;
+  }
+
+  if (!withinHours(cfg, now)) return { digest: false, urgent: [], reviewAsked };
   const alreadySent = new Set(state.urgentSent ?? []);
   const board = deps.board(cfg);
   const pending = deps.urgentOpen(cfg).filter((q) => !alreadySent.has(q.qid));
@@ -65,8 +84,8 @@ export function notifyPass(cfg: AmbrosioConfig, deps: NotifyDeps): { digest: boo
     next.urgentSent = [...alreadySent];
   }
 
-  deps.writeState(cfg, next);
-  return { digest: sendDigest, urgent };
+  deps.writeState(cfg, { ...next, ...(reviewAsked ? { reviewAskedOn: day } : {}) });
+  return { digest: sendDigest, urgent, reviewAsked };
 }
 
 function statePath(home: string): string {
@@ -87,6 +106,13 @@ export function realNotifyDeps(): NotifyDeps {
     sendUrgent: (cfg, item) => {
       imessage.send(cfg, renderUrgent(item));
       journal.append(cfg.homeDir, `urgent sent by the watcher: ${item.qid} (${item.ticket})`);
+    },
+
+    reviewDue: (cfg, now) => isReviewDue(cfg, now),
+
+    sendReviewAsk: (cfg) => {
+      imessage.send(cfg, "That is the day, sir. What went well, and what should we do differently tomorrow?\n\nhttp://127.0.0.1:4317/review");
+      journal.append(cfg.homeDir, "asked Jaime for the day's review");
     },
 
     readState: (cfg) => {

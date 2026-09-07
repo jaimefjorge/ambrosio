@@ -115,6 +115,7 @@ test("deliverAnswer resumes with the session UUID, never the short job id", asyn
 
 import { describe } from "bun:test";
 import { applyAnswer, deliverHeldAnswers } from "../src/dispatch.ts";
+import { saveReview } from "../src/review.ts";
 import * as queue from "../src/queue.ts";
 
 /** The hook writes queue items as files; do the same rather than mock the store. */
@@ -212,4 +213,19 @@ test("held-answer retries stay out of the journal, which the manager reads each 
   const seen: any[] = [];
   deliverHeldAnswers(c, (_c, o) => { seen.push(o); return "deferred"; });
   expect(seen[0].quiet).toBe(true);
+});
+
+describe("lessons reaching the worker", () => {
+  test("a worker is told what Jaime asked to be done differently", () => {
+    const c = cfg();
+    saveReview(c, { wentWell: "", doBetter: "ask which branch to base on before starting" }, new Date());
+
+    const p = renderWorkerPrompt(c, repo, ticket());
+    expect(p).toContain("What Jaime has asked us to do better");
+    expect(p).toContain("ask which branch to base on before starting");
+  });
+
+  test("with no reviews yet it says so, rather than leaving an empty heading", () => {
+    expect(renderWorkerPrompt(cfg(), repo, ticket())).toContain("(nothing recorded yet)");
+  });
 });

@@ -101,3 +101,58 @@ describe("notifyPass", () => {
     expect(log).toEqual(["digest"]);
   });
 });
+
+// --- Asking for the day's review -------------------------------------------
+
+import { reviewDue } from "../src/review.ts";
+
+describe("the end-of-day review nudge", () => {
+  const nudgeDeps = (over: Partial<NotifyDeps> = {}, state: NotifyState = {}) => {
+    const log: string[] = [];
+    let saved = state;
+    const deps: NotifyDeps = {
+      now: () => at(15, 5),
+      board: () => board(),
+      urgentOpen: () => [],
+      sendDigest: () => log.push("digest"),
+      sendUrgent: (_c, i) => log.push("urgent:" + i.qid),
+      reviewDue: () => true,
+      sendReviewAsk: () => log.push("review-ask"),
+      readState: () => saved,
+      writeState: (_c, s) => { saved = s; },
+      ...over,
+    };
+    return { deps, log, state: () => saved };
+  };
+
+  test("asks once the working day is over", () => {
+    const { deps, log } = nudgeDeps();
+    expect(notifyPass(cfg, deps).reviewAsked).toBe(true);
+    expect(log).toEqual(["review-ask"]);
+  });
+
+  test("asks once, not every pass", () => {
+    const { deps, log } = nudgeDeps();
+    notifyPass(cfg, deps);
+    notifyPass(cfg, deps);
+    expect(log).toEqual(["review-ask"]);
+  });
+
+  test("does not ask during the working day", () => {
+    const { deps, log } = nudgeDeps({ now: () => at(11) });
+    notifyPass(cfg, deps);
+    expect(log).toEqual([]);
+  });
+
+  test("does not ask once the review has been given", () => {
+    const { deps, log } = nudgeDeps({ reviewDue: () => false });
+    notifyPass(cfg, deps);
+    expect(log).toEqual([]);
+  });
+
+  test("stops asking late at night rather than nagging into the small hours", () => {
+    const { deps, log } = nudgeDeps({ now: () => at(23, 30) });
+    notifyPass(cfg, deps);
+    expect(log).toEqual([]);
+  });
+});

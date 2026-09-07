@@ -7,6 +7,7 @@ import type { Ticket } from "./tracker.ts";
 import * as agents from "./agents.ts";
 import * as journal from "./journal.ts";
 import * as queue from "./queue.ts";
+import { recentLessons } from "./review.ts";
 
 export class DispatchError extends Error {}
 
@@ -40,6 +41,14 @@ export function renderWorkerPrompt(cfg: AmbrosioConfig, repo: RepoConfig, ticket
     WORK_DIR: workDirFor(cfg, repo, ticket.id),
     PLAN_GATE: planGate,
     TURN_CAP: String(cfg.turnCap),
+    // What Jaime asked to be done differently, from his end-of-day reviews.
+    // This is how a lesson changes tomorrow instead of sitting in a file.
+    LESSONS: (() => {
+      const lessons = recentLessons(cfg, 5);
+      return lessons.length === 0
+        ? "(nothing recorded yet)"
+        : lessons.map((l) => `- ${l.lesson}  (${l.date})`).join("\n");
+    })(),
   };
 
   let out = template;

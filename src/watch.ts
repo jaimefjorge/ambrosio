@@ -33,6 +33,8 @@ export type WatchDeps = {
   notify?: (cfg: AmbrosioConfig) => { digest: boolean; urgent: string[] };
   /** Retry a rejection or plan change whose worker was busy. */
   deliverFeedback?: (cfg: AmbrosioConfig) => { ticket: string }[];
+  /** Keep the night going: park what is stuck, start what needs no one. */
+  night?: (cfg: AmbrosioConfig) => { parked: string[]; dispatched: string[] };
 };
 
 /**
@@ -135,6 +137,8 @@ import * as journal from "./journal.ts";
 import * as tracker from "./tracker.ts";
 import { collectBoard } from "./board.ts";
 import { notifyPass, realNotifyDeps, hourKey } from "./notify.ts";
+import { isAfterHours, afterHoursPass, type NightDeps } from "./afterhours.ts";
+import { dispatchTicket } from "./dispatch.ts";
 import { assignKeys, renderDigest } from "./digest.ts";
 import { applyAnswer, deliverHeldAnswers } from "./dispatch.ts";
 import { applyDecision, deliverPendingFeedback, type Decision } from "./decide.ts";
@@ -186,6 +190,13 @@ export function realDeps(): WatchDeps {
 
     decide: (cfg, d) => applyDecision(cfg, d),
 
+    // The real world lives here, so a caller that builds its own deps — a test,
+    // say — cannot reach it by forgetting a field.
+    deliverHeld: (cfg) => deliverHeldAnswers(cfg),
+    deliverFeedback: (cfg) => deliverPendingFeedback(cfg),
+    notify: (cfg) => notifyPass(cfg, realNotifyDeps()),
+    night: (cfg) => afterHoursPass(cfg, realNightDeps()),
+
     wake: (cfg) => {
       const now = Date.now();
       if (now - lastWake(cfg.homeDir) < WAKE_COOLDOWN_MS) return;
@@ -213,18 +224,36 @@ export function onePass(
 ): {
   handled: Handled[];
   delivered: { qid: string; ticket: string; repo: string }[];
-  notified: { digest: boolean; urgent: string[] };
+  notified: { digest: boolean; urgent: string[]; reviewAsked?: boolean };
   feedback: { ticket: string }[];
+  night: { parked: string[]; dispatched: string[] };
 } {
-  const delivered = (deps.deliverHeld ?? deliverHeldAnswers)(cfg);
+  const delivered = deps.deliverHeld?.(cfg) ?? [];
   // A rejection only means something once the worker hears why, and that
   // hand-over waits for the worker to park just as an answer does.
-  const feedback = (deps.deliverFeedback ?? ((c) => deliverPendingFeedback(c)))(cfg);
+  const feedback = deps.deliverFeedback?.(cfg) ?? [];
   const handled = drain(cfg, deps);
   // Outbound last: a reply handled in this same pass should be reflected in
   // whatever Jaime is about to be told.
-  const notified = (deps.notify ?? ((c) => notifyPass(c, realNotifyDeps())))(cfg);
-  return { handled, delivered, notified, feedback };
+  const notified = deps.notify?.(cfg) ?? { digest: false, urgent: [], reviewAsked: false };
+  // Once the day is over Ambrosio keeps working, quietly, on what cannot need
+  // Jaime. Nothing here ever sends him anything.
+  const night = isAfterHours(cfg) ? (deps.night?.(cfg) ?? { parked: [], dispatched: [] }) : { parked: [], dispatched: [] };
+  return { handled, delivered, notified, feedback, night };
+}
+
+export function realNightDeps(): NightDeps {
+  return {
+    workers: () => agents.workers(),
+    ready: (cfg) => collectBoard(cfg).ready,
+    repoOf: (cfg, ticket) => collectBoard(cfg).all.find((t) => t.id === ticket)?.repo ?? "",
+    stop: (id) => agents.stop(id),
+    park: (cfg, repo, ticket) => {
+      if (repo) tracker.transition(repoByName(cfg, repo), ticket, "needs_input", "Ambrosio: parked overnight, it needs Jaime");
+    },
+    dispatch: (cfg, repo, ticket) => { dispatchTicket(cfg, repo, ticket); },
+    journal: (cfg, line) => journal.append(cfg.homeDir, line),
+  };
 }
 
 export type WatchOptions = { intervalMs?: number; deps?: WatchDeps; onEvent?: (h: Handled[]) => void };
@@ -239,13 +268,15 @@ export async function runWatch(cfg: AmbrosioConfig, opts: WatchOptions = {}): Pr
   const deps = opts.deps ?? realDeps();
   for (;;) {
     try {
-      const { handled, delivered, notified, feedback } = onePass(cfg, deps);
+      const { handled, delivered, notified, feedback, night } = onePass(cfg, deps);
       for (const d of delivered) {
         opts.onEvent?.([{ text: `held answer delivered to ${d.ticket}`, at: new Date(), actions: [] }]);
       }
       for (const f of feedback) {
         opts.onEvent?.([{ text: `feedback delivered to ${f.ticket}`, at: new Date(), actions: [] }]);
       }
+      for (const p of night.parked) opts.onEvent?.([{ text: `after hours: parked ${p} for the morning`, at: new Date(), actions: [] }]);
+      for (const d of night.dispatched) opts.onEvent?.([{ text: `after hours: started ${d}`, at: new Date(), actions: [] }]);
       if (handled.length > 0) opts.onEvent?.(handled);
       if (notified.digest) opts.onEvent?.([{ text: "digest sent", at: new Date(), actions: [] }]);
       for (const qid of notified.urgent) {
