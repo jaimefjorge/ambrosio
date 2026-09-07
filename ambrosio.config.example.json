@@ -1,0 +1,43 @@
+{
+  "repos": [
+    {
+      "name": "gatemd-core",
+      "path": "~/Workspace/gatemd-core",
+      "prefix": "gmc"
+    },
+    {
+      "name": "gatemd-ui",
+      "path": "~/Workspace/gatemd-ui",
+      "prefix": "gmu"
+    },
+    {
+      "name": "tailor-craft-pro-98",
+      "path": "~/Workspace/tailor-craft-pro-98",
+      "prefix": "tcp"
+    }
+  ],
+  "wipLimit": 3,
+  "turnCap": 150,
+  "hours": {
+    "planning": "09:00",
+    "digestFrom": "09:00",
+    "digestTo": "14:00",
+    "wrapUp": "15:00"
+  },
+  "imessage": {
+    "handle": ""
+  },
+  "urgentPatterns": [
+    "\\bproduction\\b",
+    "\\bsecret\\b",
+    "\\bcredential\\b",
+    "\\bpassword\\b",
+    "\\bapi key\\b",
+    "\\bpayment\\b",
+    "\\bbilling\\b",
+    "\\birreversible\\b",
+    "\\bdestructive\\b",
+    "\\bdata loss\\b",
+    "\\b(delete|drop|wipe|truncate)\\b.*\\b(table|database|data|users|bucket|volume|branch)\\b"
+  ]
+}

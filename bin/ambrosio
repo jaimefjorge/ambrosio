@@ -2,10 +2,10 @@
 /**
  * Ambrosio CLI. Everything the manager skills and Jaime need, in one place.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { loadConfig, repoByName, withinHours, type AmbrosioConfig } from "../src/config.ts";
+import { loadConfig, repoByName, rootDir, withinHours, type AmbrosioConfig } from "../src/config.ts";
 import * as tracker from "../src/tracker.ts";
 import * as agents from "../src/agents.ts";
 import * as queue from "../src/queue.ts";
@@ -59,6 +59,35 @@ switch (cmd) {
     break;
 
   case "setup": {
+    // Generate the machine-local files first: both carry absolute paths, so they
+    // are never committed and are rebuilt on whatever machine this checkout is on.
+    const root = rootDir();
+    const configPath = join(root, "ambrosio.config.json");
+    const generated: string[] = [];
+    if (!existsSync(configPath)) {
+      const example = join(root, "ambrosio.config.example.json");
+      if (!existsSync(example)) die("ambrosio.config.example.json is missing from the checkout");
+      writeFileSync(configPath, readFileSync(example, "utf8"));
+      generated.push("ambrosio.config.json (from the example — edit the repo paths and your handle)");
+    }
+    const settingsPath = join(root, "worker", "settings.json");
+    const hooks = join(root, "worker", "hooks");
+    writeFileSync(settingsPath, JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          { matcher: "AskUserQuestion", hooks: [{ type: "command", command: join(hooks, "ask-guard.sh"), timeout: 20 }] },
+          { matcher: "Bash", hooks: [{ type: "command", command: join(hooks, "bash-guard.sh"), timeout: 20 }] },
+        ],
+        PermissionRequest: [
+          { matcher: "", hooks: [{ type: "command", command: join(hooks, "permission-guard.sh"), timeout: 20 }] },
+        ],
+      },
+    }, null, 2) + "\n");
+    generated.push("worker/settings.json (hook paths for this machine)");
+    for (const h of ["ask-guard.sh", "bash-guard.sh", "permission-guard.sh"]) {
+      try { chmodSync(join(hooks, h), 0o755); } catch { /* already executable */ }
+    }
+
     const c = cfg();
     const problems: string[] = [];
     for (const tool of ["bd", "claude", "jq", "gh"]) {
@@ -83,6 +112,8 @@ switch (cmd) {
     if (!c.imessage.handle) problems.push("imessage.handle is empty in ambrosio.config.json — set it to the number or Apple ID you text yourself with");
 
     out([
+      `generated:`,
+      ...generated.map((g) => `  ${g}`),
       `home: ${c.homeDir}`,
       `repos:`,
       ...repoLines,

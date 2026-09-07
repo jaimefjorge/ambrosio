@@ -18,6 +18,13 @@ export type AmbrosioConfig = {
 
 export class ConfigError extends Error {}
 
+/** Expand a leading ~ so configs stay portable between machines. */
+export function expandHome(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
+  return resolve(p);
+}
+
 const DEFAULT_HOURS: Hours = { planning: "09:00", digestFrom: "09:00", digestTo: "14:00", wrapUp: "15:00" };
 
 /** Root of the Ambrosio checkout: two levels up from this file (src/ -> repo). */
@@ -48,7 +55,7 @@ export function loadConfig(path?: string): AmbrosioConfig {
     if (!r?.name || !r?.path || !r?.prefix) {
       throw new ConfigError(`each repo needs name, path and prefix: ${JSON.stringify(r)}`);
     }
-    return { name: r.name, path: resolve(r.path), prefix: r.prefix };
+    return { name: r.name, path: expandHome(r.path), prefix: r.prefix };
   });
 
   const missing = repos.filter((r) => !existsSync(r.path));
