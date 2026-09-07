@@ -5,7 +5,7 @@ import type { Board } from "./board.ts";
 import { collectBoard } from "./board.ts";
 import { assignKeys } from "./digest.ts";
 import * as queue from "./queue.ts";
-import { readTranscript, type Event } from "./transcript.ts";
+import { readTranscript, lastActivityAt, type Event } from "./transcript.ts";
 import { applyAnswer } from "./dispatch.ts";
 import { applyDecision, type Decision } from "./decide.ts";
 import { buildBrief, realMorningDeps } from "./morning.ts";
@@ -23,7 +23,7 @@ import { canDispatch, wipUsed } from "./board.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "7";
+export const UI_VERSION = "8";
 
 export type UiWorker = {
   id?: string;
@@ -34,6 +34,8 @@ export type UiWorker = {
   tokens?: number;
   startedAt?: number;
   cwd: string;
+  /** Minutes since this session last said anything; null when it never has. */
+  silentFor: number | null;
   title?: string;
   repo?: string;
   ticketStatus?: string;
@@ -82,6 +84,7 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
     .filter((a) => a.kind === "background")
     .map((a) => {
       const ticket = a.name ? byId.get(a.name.toLowerCase()) : undefined;
+      const last = a.state === "working" && a.sessionId ? lastActivityAt(a.sessionId, a.cwd) : null;
       return {
         id: a.id,
         name: a.name,
@@ -91,6 +94,7 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
         tokens: a.tokens,
         startedAt: a.startedAt,
         cwd: a.cwd,
+        silentFor: last ? Math.round((Date.now() - last.getTime()) / 60000) : null,
         title: ticket?.title,
         repo: ticket?.repo,
         ticketStatus: ticket?.status,

@@ -186,3 +186,25 @@ describe("right-clicking a worker to ask about it", () => {
     expect(parseInt(m.nodes.menu.style.top)).toBeLessThan(880);
   });
 });
+
+describe("a worker that says it is working but is not", () => {
+  const worker = (silentFor: number | null) => renderPage({
+    ...empty,
+    workers: [{ id: "a1", name: "gmc-4or", state: "working", cwd: "/w", silentFor, ticketStatus: "in_progress", title: "e2e" }],
+  }).workers;
+
+  test("says how long it has been silent, next to the state that claims otherwise", () => {
+    // The card read WORKING and "awaiting Verity Stop hook" for three and a half
+    // hours after the worker had finished and gone quiet.
+    expect(worker(219)).toContain("silent 3h39");
+    expect(worker(219)).toContain("working");
+  });
+
+  test("a worker that is thinking is not accused", () => {
+    expect(worker(4)).not.toContain("silent");
+  });
+
+  test("a session that has never spoken is not accused either", () => {
+    expect(worker(null)).not.toContain("silent");
+  });
+});

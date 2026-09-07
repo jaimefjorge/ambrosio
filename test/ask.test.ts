@@ -88,3 +88,19 @@ describe("an instruction is not a question", () => {
     expect(looksLikeAQuestion("can you restart it?")).toBe(true);
   });
 });
+
+describe("history must not be reported as the present", () => {
+  test("the prompt says which source is current and which is a record", () => {
+    // The fault this fixes: one answer said a ticket was "back with the worker"
+    // and "waiting on you" at once, having read a noon rejection as if it stood.
+    const p = buildAskPrompt("what is happening with gfh?", ctx as any);
+    expect(p).toContain("right now");
+    expect(p).toContain("the board is right and the journal is history");
+    expect(p).toContain("Never describe a past event as if it were the current state");
+  });
+
+  test("and states the time, so 'a long time' can be judged", () => {
+    const p = buildAskPrompt("is it stuck?", ctx as any, new Date("2026-09-08T15:45:00"));
+    expect(p).toMatch(/It is now .*2026/);
+  });
+});

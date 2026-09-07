@@ -36,11 +36,14 @@ export function looksLikeAQuestion(text: string): boolean {
  * explicit: ground the answer in what is here, say so when that is not enough,
  * and never act. A question must not move a ticket as a side effect.
  */
-export function buildAskPrompt(question: string, ctx: AskContext): string {
+export function buildAskPrompt(question: string, ctx: AskContext, now = new Date()): string {
   const parts: string[] = [
     `Jaime asks: ${question.trim()}`,
     "",
     "You are Ambrosio, his engineering manager. Answer him directly, in a few sentences.",
+    `It is now ${now.toLocaleString()}.`,
+    "The board and the ticket are the state **right now**. The journal is a record of what happened earlier today.",
+    "When they disagree, the board is right and the journal is history: a ticket that was rejected at noon and is in review now came back. Never describe a past event as if it were the current state.",
     "Answer only from the state below. If it does not say, reply that you do not know and name what you would have to look at.",
     "This is a question, not an instruction: do not change anything, do not run anything, do not move a ticket or start a worker.",
     "",
@@ -56,8 +59,8 @@ export function buildAskPrompt(question: string, ctx: AskContext): string {
       "",
     );
   }
-  parts.push("## The board", JSON.stringify(ctx.board, null, 2), "");
-  if (ctx.journal.trim()) parts.push("## Today's journal", ctx.journal.trim(), "");
+  parts.push("## The board, as it is now", JSON.stringify(ctx.board, null, 2), "");
+  if (ctx.journal.trim()) parts.push("## Today's journal — earlier events, not the current state", ctx.journal.trim(), "");
 
   return parts.join("\n");
 }

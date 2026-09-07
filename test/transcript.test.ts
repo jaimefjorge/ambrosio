@@ -93,3 +93,41 @@ test("every event carries its timestamp, which the fleet view reads to show when
   ]);
   expect(e.map((x) => x.at)).toEqual(["2026-09-07T09:54:06.681Z", "2026-09-07T09:54:19.100Z"]);
 });
+
+// --- Liveness ---------------------------------------------------------------
+
+import { lastActivityAt } from "../src/transcript.ts";
+import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+function withTranscript(lines: string[], mtime?: Date): string {
+  const root = mkdtempSync(join(tmpdir(), "amb-tr-"));
+  process.env.CLAUDE_CONFIG_DIR = root;
+  const dir = join(root, "projects", "-w");
+  mkdirSync(dir, { recursive: true });
+  const f = join(dir, "sess-x.jsonl");
+  writeFileSync(f, lines.join("\n") + "\n");
+  if (mtime) utimesSync(f, mtime, mtime);
+  return "sess-x";
+}
+
+test("liveness comes from the last real entry, not the file's mtime", () => {
+  // The exact fault: bookkeeping keeps touching the file while the session has
+  // been silent for hours, so mtime says alive and the worker is not.
+  const sid = withTranscript([
+    JSON.stringify({ type: "assistant", timestamp: "2026-09-08T09:00:00.000Z", message: { content: [] } }),
+    JSON.stringify({ type: "worktree-state", sessionId: "sess-x" }),
+    JSON.stringify({ type: "permission-mode", permissionMode: "auto" }),
+  ], new Date("2026-09-08T15:41:00Z"));
+
+  expect(lastActivityAt(sid)!.toISOString()).toBe("2026-09-08T09:00:00.000Z");
+});
+
+test("a transcript with no timestamped entry reports nothing rather than guessing", () => {
+  expect(lastActivityAt(withTranscript([JSON.stringify({ type: "worktree-state" })]))).toBeNull();
+});
+
+test("a session with no transcript at all is not an error", () => {
+  expect(lastActivityAt("no-such-session")).toBeNull();
+});

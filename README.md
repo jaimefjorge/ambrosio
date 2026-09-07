@@ -89,7 +89,7 @@ what is not.
 bin/ambrosio setup     # generates machine-local config, initializes Beads
 bin/ambrosio start     # fleet view on :4317 + the watcher, one process
 bin/ambrosio morning   # the brief, scoped to today's projects
-bun test               # 266 tests
+bun test               # 274 tests
 ```
 
 ---

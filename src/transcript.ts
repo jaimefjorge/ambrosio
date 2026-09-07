@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, openSync, readSync, closeSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -107,22 +107,50 @@ export function findTranscript(sessionId: string, cwd?: string): string | null {
   return null;
 }
 
+/** Enough of the tail to hold several entries without reading the whole file. */
+const TAIL_BYTES = 32 * 1024;
+
 /**
- * When a session last did anything, from its transcript's mtime.
+ * When a session last actually said something.
  *
- * Costs one stat, so it is cheap enough for every board read, where parsing a
- * transcript of hundreds of kilobytes would not be. The file is also touched by
- * bookkeeping entries, not only by real output, so this errs towards saying a
- * session is alive — which is the safe direction for something that raises an
- * alarm.
+ * Not the file's mtime: Claude Code appends bookkeeping entries (worktree
+ * state, permission mode) to the transcript without the session producing any
+ * output, so mtime can be minutes old while the worker has been silent for
+ * hours. That is exactly the case this has to catch, so it reads the tail and
+ * takes the newest real timestamp.
  */
 export function lastActivityAt(sessionId: string, cwd?: string): Date | null {
   const file = findTranscript(sessionId, cwd);
   if (!file) return null;
+
+  let fd: number | undefined;
   try {
-    return statSync(file).mtime;
+    const size = statSync(file).size;
+    const start = Math.max(0, size - TAIL_BYTES);
+    const buf = Buffer.alloc(Math.min(size, TAIL_BYTES));
+    fd = openSync(file, "r");
+    readSync(fd, buf, 0, buf.length, start);
+
+    const lines = buf.toString("utf8").split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line.startsWith("{")) continue;
+      try {
+        const ts = JSON.parse(line)?.timestamp;
+        if (typeof ts === "string") {
+          const d = new Date(ts);
+          if (!isNaN(d.getTime())) return d;
+        }
+      } catch {
+        // A partial first line from slicing mid-file, or a half-written last
+        // one; neither means the session is silent.
+      }
+    }
+    return null;
   } catch {
     return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
