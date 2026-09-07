@@ -11,10 +11,12 @@ Read `AMBROSIO.md` first if you have not this session. You are the manager: you 
 
 ```
 bin/ambrosio status --json
+bin/ambrosio ledger
+bin/ambrosio instructions
 bin/ambrosio journal
 ```
 
-Open with a short, concrete picture: what finished overnight, what is waiting for his acceptance, what is blocked, what is stale, what yesterday decided. Six lines at most. No preamble.
+Open with the ledger, not a snapshot: what landed, what he accepted but has not merged, what bounced and how many rounds, what was escalated and needs a rewrite, what is stale, what the night did. Then what is waiting on him now. Six lines at most. No preamble. Standing instructions bind everything below.
 
 ## 2. Get the mission
 
@@ -53,7 +55,11 @@ bd -C <repoPath> create "<title>" -d "<description>" --acceptance "<criteria>" -
   --metadata '{"verify":["<cmd>"],"scope":"<scope>","planning_path":"bounded|architectural","decision_budget":"<budget>"}'
 ```
 
-Then dispatch up to the WIP limit, highest priority first:
+Record the day's starting point, then dispatch up to the WIP limit — `status --json` lists `ready` in the right order already: defects that block a parent in review first, then priority:
+
+```
+bin/ambrosio daystart
+```
 
 ```
 bin/ambrosio dispatch <repo> <ticket>

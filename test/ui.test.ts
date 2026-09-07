@@ -227,3 +227,18 @@ describe("buildTicketDetail", () => {
     expect(d.evidence).toBe("");
   });
 });
+
+test("the ticket drawer carries the timeline, newest last", async () => {
+  const { buildTicketDetail } = await import("../src/ui.ts");
+  const { record } = await import("../src/timeline.ts");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const c = { ...cfg, homeDir: mkdtempSync(join(tmpdir(), "amb-tld-")) } as AmbrosioConfig;
+  record(c.homeDir, "gatemd", "gmc-axx", { kind: "dispatched", at: "2026-09-08T09:00:00Z" });
+  record(c.homeDir, "gatemd", "gmc-axx", { kind: "rejected", iteration: 1, note: "no test", at: "2026-09-08T13:00:00Z" });
+  const ticket = { id: "gmc-axx", repo: "gatemd", title: "x", status: "in_review", priority: 3 };
+  const d = buildTicketDetail(c, board({ all: [ticket as any], accept: [ticket as any] }), "gatemd", "gmc-axx", { comments: () => [], defects: () => [], file: () => null })!;
+  expect(d.timeline.map((e) => e.kind)).toEqual(["dispatched", "rejected"]);
+  expect(d.iteration).toBe(1);
+});

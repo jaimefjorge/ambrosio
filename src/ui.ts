@@ -17,6 +17,8 @@ import * as journal from "./journal.ts";
 import { dispatchTicket } from "./dispatch.ts";
 import { canDispatch, wipUsed } from "./board.ts";
 import * as tracker from "./tracker.ts";
+import * as timeline from "./timeline.ts";
+import type { TimelineEvent } from "./timeline.ts";
 import { repoByName } from "./config.ts";
 import { readDialog, standing, retire, type Entry } from "./standing.ts";
 import { say } from "./dialog.ts";
@@ -177,6 +179,10 @@ export type UiTicketDetail = {
   plan: string;
   evidence: string;
   worker?: UiWorker;
+  /** Everything that happened to it, oldest first. */
+  timeline: TimelineEvent[];
+  /** Rounds of rework so far. */
+  iteration: number;
 };
 
 export type TicketDetailDeps = {
@@ -216,6 +222,7 @@ export function buildTicketDetail(cfg: AmbrosioConfig, board: Board, repo: strin
   const last = comments.length ? comments[comments.length - 1].text : "";
   const land = board.landable?.[t.id];
   const payload = buildPayload(cfg, board);
+  const events = timeline.read(cfg.homeDir, repo, t.id);
   return {
     ticket: {
       id: t.id, repo, title: t.title, status: t.status, priority: t.priority,
@@ -230,6 +237,8 @@ export function buildTicketDetail(cfg: AmbrosioConfig, board: Board, repo: strin
     plan: tail(safely(() => deps.file(cfg, repo, t.id, "plan.md"), null), 40),
     evidence: tail(safely(() => deps.file(cfg, repo, t.id, "evidence.md"), null), 60),
     worker: payload.workers.find((w) => w.name?.toLowerCase() === t.id.toLowerCase()),
+    timeline: events,
+    iteration: timeline.iterationOf(events),
   };
 }
 

@@ -6,6 +6,7 @@ import { assignKeys } from "./digest.ts";
 import * as journal from "./journal.ts";
 import * as queue from "./queue.ts";
 import { recentLessons, readReview, type Lesson } from "./review.ts";
+import { ledger, realLedgerDeps, type Ledger, type LedgerDeps } from "./ledger.ts";
 
 /**
  * Whether a source could be read at all, and why not when it could not.
@@ -66,6 +67,8 @@ export type MorningBrief = {
   capacity: { used: number; limit: number; free: number };
   /** Standing instructions from the dialog, still in force this morning. */
   instructions: string[];
+  /** Yesterday's ledger: what landed, what bounced, what is still yours to merge. */
+  ledger: Ledger | null;
   carryover: Carryover[];
   waiting: { key: string; kind: "question" | "plan" | "accept"; id: string; repo: string; title: string }[];
   ready: BriefTicket[];
@@ -77,6 +80,7 @@ export type MorningBrief = {
 };
 
 export type MorningDeps = {
+  ledgerDeps?: LedgerDeps;
   board: (cfg: AmbrosioConfig) => Board;
   prs: (cfg: AmbrosioConfig) => PullRequest[];
   linear: (cfg: AmbrosioConfig) => { issues: MorningBrief["linear"]; source: SourceState };
@@ -175,6 +179,7 @@ export function buildBrief(cfg: AmbrosioConfig, deps: MorningDeps, scope: Scope 
     yesterdayReview: safely("Yesterday's review", null as any, () => deps.yesterdayReview(cfg), sources),
     capacity: { used: busy, limit: cfg.wipLimit, free: Math.max(0, cfg.wipLimit - busy) },
     instructions: standing(cfg.homeDir).map((e) => e.text),
+    ledger: safely("Ledger", null as Ledger | null, () => ledger(cfg, deps.ledgerDeps ?? realLedgerDeps(), new Date(now.getTime() - 24 * 3600 * 1000), now), sources),
     carryover: carryoverFrom(text),
     waiting: waiting.filter((w) => inScope(w.repo)),
     ready: (board?.ready ?? []).filter((t) => inScope(t.repo)).map(asTicket),

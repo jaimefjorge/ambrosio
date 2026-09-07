@@ -98,7 +98,8 @@ export function observe(cfg: AmbrosioConfig, tickets: { id: string; repo?: strin
       next[key] = t.status;
       // The first sighting of a ticket is not a transition; only a change is.
       if (before !== undefined) {
-        out.push(record(cfg.homeDir, t.repo ?? "", t.id, { at: now.toISOString(), kind: "status", from: before, status: t.status, by: "worker" }));
+        const ev = record(cfg.homeDir, t.repo ?? "", t.id, { at: now.toISOString(), kind: "status", from: before, status: t.status, by: "worker" });
+        out.push({ ...ev, repo: t.repo ?? "", ticket: t.id });
       }
     }
   }

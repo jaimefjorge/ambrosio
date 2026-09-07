@@ -75,3 +75,11 @@ Never send two digests in the same hour. If you already sent one this hour and s
 ## 6. Record
 
 Append one line per action to the journal (the CLI does this for dispatch, answers and sends; add anything else yourself with a short note). Then end your turn. Do not summarize the tick back into the chat unless Jaime asked for status.
+
+## Cycles, on every tick
+
+- **STALE** on the board is a dead or silent worker whose slot is already free: re-dispatch it with a comment saying what was done and what remains, or park it. Do not ask.
+- A ticket in `in_review` showing `round n` has been sent back before; the digest says so, and its drawer shows each round's ask.
+- A ticket that reached `needs_input` with a comment beginning "Bounced" was escalated: it needs Jaime to rewrite it, not another round. Put it in the digest under DECIDE with that framing.
+- `ready` is already ordered: defects that block a parent in review first. Dispatch in that order.
+- Standing instructions (`bin/ambrosio instructions`) bind every decision here.

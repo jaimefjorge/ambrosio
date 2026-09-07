@@ -244,3 +244,24 @@ describe("autolink runs each pass", () => {
     resume(home);
   });
 });
+
+describe("after acceptance and the defect chain run each pass", () => {
+  test("landed runs on a normal pass but not while paused, and a closed defect wakes its parent", async () => {
+    const { pause, resume } = await import("../src/pause.ts");
+    const home = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "amb-ld-"));
+    const c = { ...cfg, homeDir: home } as AmbrosioConfig;
+    const { deps, log } = spyDeps([], {
+      landed: () => { log.push("landed"); return { merged: [], green: [], red: [] }; },
+      defectChain: () => { log.push("chain"); return { woke: [] }; },
+    });
+    onePass(c, deps);
+    expect(log).toContain("landed");
+    expect(log).toContain("chain");
+    pause(home, "x");
+    log.length = 0;
+    onePass(c, deps);
+    expect(log).not.toContain("landed");
+    expect(log).not.toContain("chain");
+    resume(home);
+  });
+});

@@ -10,6 +10,7 @@ import { readPause } from "./pause.ts";
 import { standing } from "./standing.ts";
 import { landable as assessLandable, type Assessment } from "./landable.ts";
 import * as timeline from "./timeline.ts";
+import { orderReady } from "./chain.ts";
 
 export type Deps = {
   listTickets: (repo: { name: string; path: string; prefix: string }, statuses?: string[]) => Ticket[];
@@ -91,11 +92,16 @@ export function collectBoard(
   // ticket rather than leaving Jaime to open each PR and find out.
   const landableBy: Record<string, Assessment> = {};
   const iterations: Record<string, number> = {};
+  // Defects that hold a parent back from acceptance: they go to the front of
+  // the queue, because finishing what is blocked beats starting what is new.
+  const blocking: Record<string, string> = {};
   for (const t of accept) {
     const n = timeline.iterationOf(timeline.read(cfg.homeDir, t.repo ?? "", t.id));
     if (n > 0) iterations[t.id] = n;
     try {
       landableBy[t.id] = landable(cfg, t.repo ?? "", t.id);
+      const m = /open defects: ([^;]+)/.exec(landableBy[t.id].reasons.join("; "));
+      if (m) for (const id of m[1].split(",").map((x) => x.trim())) blocking[id] = t.id;
     } catch (e) {
       errors.push(`could not assess whether ${t.id} is landable: ${(e as Error).message}`);
     }
@@ -116,7 +122,7 @@ export function collectBoard(
     iterations,
     paused: readPause(cfg.homeDir),
     instructions: standing(cfg.homeDir).map((e) => e.text),
-    ready: all.filter((t) => t.status === "open"),
+    ready: orderReady(all.filter((t) => t.status === "open"), blocking),
     needsInput,
     all,
     agents: live,

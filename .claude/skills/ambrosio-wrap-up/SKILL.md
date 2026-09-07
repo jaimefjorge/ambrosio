@@ -11,20 +11,13 @@ Read `AMBROSIO.md` first if you have not this session.
 
 ```
 bin/ambrosio status --json
+bin/ambrosio ledger
 bin/ambrosio journal
 ```
 
-## 2. Report to Jaime, once
+## 2. Report to Jaime, once: the ledger
 
-One message, in this order:
-
-- **Accepted today**: tickets he closed, with PR links.
-- **Waiting on you**: anything still in `plan_review`, `in_review` or `needs_input`. This is the honest list; do not soften it.
-- **In flight**: workers still running, and what each is on.
-- **Blocked**: with the reason in a few words each.
-- **Spend**: total tokens today.
-
-Keep it under fifteen lines. It is a summary, not a transcript.
+Send `bin/ambrosio ledger` as it renders, then add two lines: workers still running and what each is on, and spend. The ledger is the honest list — landed, accepted-not-merged (his to merge), bounced with rounds, escalated (needs a rewrite), waiting, blocked, added today and by whom, and open work against the morning. Do not soften it. If net open work went up, say so in one sentence and name the biggest reason.
 
 ## 3. Park the fleet
 

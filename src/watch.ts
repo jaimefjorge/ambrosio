@@ -5,6 +5,8 @@ import { isPaused, pause as setPause, resume as clearPause } from "./pause.ts";
 import { nightKey, readNight, recordStart } from "./night.ts";
 import { autolinkPass, realAutolinkDeps } from "./autolink.ts";
 import * as timeline from "./timeline.ts";
+import { landedPass, realLandedDeps } from "./landed.ts";
+import { defectChainPass, realChainDeps } from "./chain.ts";
 
 export type Action =
   | { kind: "answered"; qid: string; ticket: string; delivery: "resumed" | "deferred" }
@@ -47,7 +49,11 @@ export type WatchDeps = {
   /** Link defects a worker filed without saying where they came from. */
   autolink?: (cfg: AmbrosioConfig) => { linked: { child: string; parent: string }[] };
   /** Record status changes workers made on their own since the last pass. */
-  observe?: (cfg: AmbrosioConfig) => unknown[];
+  observe?: (cfg: AmbrosioConfig) => { repo: string; ticket: string; from?: string; to: string }[];
+  /** After acceptance: merged? main green? Files a defect if main went red. */
+  landed?: (cfg: AmbrosioConfig) => { merged: string[]; green: string[]; red: string[] };
+  /** A closed defect wakes the parent waiting for acceptance. */
+  defectChain?: (cfg: AmbrosioConfig, changes: { repo: string; ticket: string; from?: string; to: string }[]) => { woke: string[] };
 };
 
 /**
@@ -234,7 +240,9 @@ export function realDeps(): WatchDeps {
     notify: (cfg) => notifyPass(cfg, realNotifyDeps()),
     night: (cfg) => afterHoursPass(cfg, realNightDeps()),
     autolink: (cfg) => autolinkPass(cfg, realAutolinkDeps()),
-    observe: (cfg) => timeline.observe(cfg, collectBoard(cfg).all),
+    observe: (cfg) => timeline.observe(cfg, collectBoard(cfg).all).map((e) => ({ repo: String(e.repo ?? ""), ticket: String(e.ticket ?? ""), from: e.from, to: e.status ?? "" })),
+    landed: (cfg) => landedPass(cfg, realLandedDeps()),
+    defectChain: (cfg, changes) => defectChainPass(cfg, realChainDeps(), changes),
 
     wake: (cfg) => {
       const now = Date.now();
@@ -278,10 +286,16 @@ export function onePass(
   const feedback = paused ? [] : (deps.deliverFeedback?.(cfg) ?? []);
   const handled = drain(cfg, deps);
   // The timeline sees what workers did to their own tickets since last pass.
-  deps.observe?.(cfg);
-  // Orphaned defects are what rule 4 cannot see; link them before anything
-  // downstream reads the board.
-  if (!paused) deps.autolink?.(cfg);
+  const changes = deps.observe?.(cfg) ?? [];
+  if (!paused) {
+    // Orphaned defects are what rule 4 cannot see; link them before anything
+    // downstream reads the board.
+    deps.autolink?.(cfg);
+    // A defect that just closed may have unblocked a parent waiting on Jaime.
+    if (deps.defectChain) deps.defectChain(cfg, changes);
+    // Accepted work: merged? main green? — asked of gh at most every few minutes.
+    if (deps.landed && landedDue(cfg)) deps.landed(cfg);
+  }
   // Outbound last: a reply handled in this same pass should be reflected in
   // whatever Jaime is about to be told.
   const notified = deps.notify?.(cfg) ?? { digest: false, urgent: [], reviewAsked: false };
@@ -289,6 +303,17 @@ export function onePass(
   // Jaime. Nothing here ever sends him anything.
   const night = !paused && isAfterHours(cfg) ? (deps.night?.(cfg) ?? { parked: [], dispatched: [] }) : { parked: [], dispatched: [] };
   return { handled, delivered, notified, feedback, night, paused };
+}
+
+/** gh is rate-limited; the after-acceptance look runs every few minutes, not every pass. */
+const LANDED_EVERY_MS = 5 * 60_000;
+function landedDue(cfg: AmbrosioConfig, now = Date.now()): boolean {
+  const f = join(cfg.homeDir, "landed.json");
+  let last = 0;
+  if (existsSync(f)) { try { last = JSON.parse(readFileSync(f, "utf8")).last ?? 0; } catch { last = 0; } }
+  if (now - last < LANDED_EVERY_MS) return false;
+  writeFileSync(f, JSON.stringify({ last: now }));
+  return true;
 }
 
 export function realNightDeps(): NightDeps {

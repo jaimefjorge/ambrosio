@@ -666,6 +666,16 @@ function renderTicket(d) {
     parts.push('<div class="sub">Filed on the way</div>');
     parts.push(`<div class="box">${d.defects.map((x) => `<div><b>${esc(x.id)}</b> ${esc(x.title)} <span style="color:var(--dim)">· ${esc(x.status)}</span></div>`).join("")}</div>`);
   }
+  if (d.timeline && d.timeline.length) {
+    parts.push(`<div class="sub">Timeline${d.iteration ? ` <span class="since">— round ${esc(String(d.iteration))} of rework</span>` : ""}</div>`);
+    parts.push(`<div class="box">${d.timeline.map((e) => {
+      const what = e.kind === "status" ? `${esc(e.from || "")} → ${esc(e.status || "")}`
+        : e.kind === "rejected" ? `rejected, round ${esc(String(e.iteration || ""))}: ${esc(e.note || "")}`
+        : e.kind === "plan_change" ? `plan sent back, round ${esc(String(e.iteration || ""))}: ${esc(e.note || "")}`
+        : `${esc(e.kind.replace(/_/g, " "))}${e.note ? ": " + esc(e.note) : ""}`;
+      return `<div class="ev"><span class="ts">${esc(clock(e.at))}</span> <span class="k">${esc(e.by || "")}</span> <span class="v">${what}</span></div>`;
+    }).join("")}</div>`);
+  }
   if (d.evidence) { parts.push('<div class="sub">Evidence (tail)</div>'); parts.push(`<div class="box pre small">${esc(d.evidence)}</div>`); }
   if (d.plan) { parts.push('<div class="sub">Plan (tail)</div>'); parts.push(`<div class="box pre small">${esc(d.plan)}</div>`); }
   parts.push(`<div class="sub">Ask Ambrosio about this</div><div class="box"><input id="d-ask" placeholder="why is it not landable? what did the reviewer say?"><div id="d-answer" class="pre"></div></div>`);

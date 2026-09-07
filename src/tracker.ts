@@ -220,6 +220,11 @@ export function active(repo: RepoConfig): Ticket[] {
   return list(repo, [...ACTIVE_STATUSES]);
 }
 
+/** Raw dependency rows in one direction, as bd reports them. */
+export function deps(repo: RepoConfig, id: string, direction: string[] = []): Ticket[] {
+  return bdJson<Ticket[]>(repo, ["dep", "list", id, ...direction]) ?? [];
+}
+
 /** Any link in either direction: a ticket with one is not an orphan. */
 export function hasLinks(repo: RepoConfig, id: string): boolean {
   try {
