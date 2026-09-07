@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import type { AmbrosioConfig } from "./config.ts";
+import { recordSent } from "./inbox.ts";
 
 export class IMessageError extends Error {}
 
@@ -26,8 +27,11 @@ end tell`;
 }
 
 /**
- * Send via Messages.app. The channel plugin handles inbound; this is the
- * outbound path used by the CLI and by scripts that are not the tick session.
+ * Send via Messages.app.
+ *
+ * Every send is recorded before it goes out: it lands in the same self-chat as
+ * Jaime's own messages and is indistinguishable from them in the database, so
+ * `inbox.readInbound` needs to know what was ours.
  */
 export function send(cfg: AmbrosioConfig, text: string, handle?: string): void {
   const to = handle ?? cfg.imessage.handle;
@@ -36,6 +40,7 @@ export function send(cfg: AmbrosioConfig, text: string, handle?: string): void {
       "No iMessage handle configured. Set imessage.handle in ambrosio.config.json to the phone number or Apple ID you text yourself with.",
     );
   }
+  recordSent(cfg.homeDir, text);
   const r = spawnSync("osascript", ["-e", buildSendScript(to, text)], { encoding: "utf8", timeout: 30_000 });
   if (r.status !== 0) {
     throw new IMessageError(

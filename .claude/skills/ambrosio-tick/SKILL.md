@@ -15,13 +15,18 @@ Run this whole cycle in order. It should take one turn.
 bin/ambrosio tick
 ```
 
-That one call gives you: the time, whether you are inside working hours, WIP usage, the digest keys (`Q1`, `P1`, `A1`...) mapped to real ticket and question ids, urgent items, anomalies, what is dispatchable, and the rendered digest.
+That one call gives you: the time, whether you are inside working hours, WIP usage, the digest keys (`Q1`, `P1`, `A1`...) mapped to real ticket and question ids, urgent items, anomalies, what is dispatchable, the rendered digest, and `inbound` — everything Jaime has texted since the last tick, already parsed.
 
 Never guess any of this. If the call fails, say so and stop.
 
 ## 2. Route Jaime's replies first
 
-Any message from Jaime that arrived on the iMessage channel is in your conversation as a `<channel source="imessage">` event. Parse each line with the grammar in `AMBROSIO.md` and apply it, in the order he wrote it:
+Jaime's messages reach you two ways, and you must check both:
+
+- **`inbound` in the `bin/ambrosio tick` output.** This is the reliable one. Each entry has `at`, `text` and `replies` — already parsed with the grammar. Ambrosio reads them straight from the Messages database, so a self-chat message arrives even though the channel plugin discards it.
+- **`<channel source="imessage">` events in your conversation**, when the channel is working.
+
+Apply them in the order he wrote them, and do not act on the same message twice — `inbound` is a cursor, so anything you see there has not been handled before. If `inboundError` is present, the inbox is broken: say so in the digest instead of assuming Jaime has been quiet. Parse each line with the grammar in `AMBROSIO.md`:
 
 | Reply | What you do |
 |---|---|

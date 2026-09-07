@@ -11,6 +11,8 @@ import * as agents from "../src/agents.ts";
 import * as queue from "../src/queue.ts";
 import * as journal from "../src/journal.ts";
 import * as imessage from "../src/imessage.ts";
+import * as inbox from "../src/inbox.ts";
+import { parseReplies } from "../src/replies.ts";
 import { collectBoard, canDispatch, wipUsed } from "../src/board.ts";
 import { renderDigest, renderUrgent, hasDecisions, assignKeys } from "../src/digest.ts";
 import { dispatchTicket, deliverAnswer } from "../src/dispatch.ts";
@@ -48,6 +50,7 @@ const HELP = `ambrosio — manager for Claude Code workers
   digest [--send]              render the digest (and optionally send it)
   urgent [--send]              render anything urgent
   send <text...>               send yourself an iMessage
+  inbox [--json]               what you have texted Ambrosio since the last read
   tick [--send]                one manager cycle: route, detect, dispatch, digest
   journal                      today's decisions
 `;
@@ -251,14 +254,33 @@ switch (cmd) {
     break;
   }
 
+  case "inbox": {
+    const c = cfg();
+    const msgs = inbox.readInbound(c);
+    if (asJson) { out(msgs.map((m) => ({ ...m, at: m.at.toISOString(), replies: parseReplies(m.text) }))); break; }
+    out(msgs.length === 0 ? "(nothing new)" : msgs.map((m) => `${m.at.toLocaleTimeString()}  ${m.text}`).join("\n"));
+    break;
+  }
+
   case "tick": {
     const c = cfg();
     const board = collectBoard(c);
     const keys = assignKeys(board);
     const inHours = withinHours(c);
     const dispatchable = canDispatch(c, board) && inHours ? board.ready.slice(0, c.wipLimit - wipUsed(board)) : [];
+    let inboundErr: string | undefined;
+    let inbound: { at: string; text: string; replies: unknown[] }[] = [];
+    try {
+      inbound = inbox.readInbound(c).map((m) => ({ at: m.at.toISOString(), text: m.text, replies: parseReplies(m.text) }));
+    } catch (e) {
+      // A broken inbox must be loud. Silently reading nothing is the exact
+      // failure this path was built to end.
+      inboundErr = (e as Error).message;
+    }
     out({
       now: board.now.toISOString(),
+      inbound,
+      ...(inboundErr ? { inboundError: inboundErr } : {}),
       withinHours: inHours,
       wip: `${wipUsed(board)}/${c.wipLimit}`,
       hasDecisions: hasDecisions(board),
