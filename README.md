@@ -8,10 +8,6 @@
         " o  s e u  m o r d o m o  d i g i t a l "
 ```
 
-![Ambrosio and the Lady in the yellow hat, Ferrero Rocher, 1995](assets/ambrosio-1995.jpg)
-
----
-
 ## `[*]` WHAT IS THIS??
 
 A manager for a fleet of Claude Code agents, built so **one person** can supervise
