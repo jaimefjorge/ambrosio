@@ -171,3 +171,23 @@ test("a stale worker is shown as stale and does not count toward WIP on screen",
   expect(w.state).toBe("stale");
   expect(w.silentFor).toBe(210);
 });
+
+// --- The dialog rides on the payload ------------------------------------------
+
+test("the payload carries the standing instructions and the recent thread", async () => {
+  const { buildPayload } = await import("../src/ui.ts");
+  const { say } = await import("../src/dialog.ts");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const c = { ...cfg, homeDir: mkdtempSync(join(tmpdir(), "amb-uid-")), repos: [] } as AmbrosioConfig;
+  say(c, "gatemd first this week", {
+    snapshot: () => ({ keys: { questions: {}, plans: {}, accept: {} }, tickets: [] }),
+    route: () => ({ kind: "status" }),
+    ask: () => ({ ok: true, answer: "" }),
+  });
+  const { collectBoard } = await import("../src/board.ts");
+  const p = buildPayload(c, collectBoard(c, new Date(), { listTickets: () => [], listAgents: () => [], listQueue: () => [] }));
+  expect(p.instructions?.map((i) => i.text)).toEqual(["gatemd first this week"]);
+  expect(p.dialog?.map((e) => e.from)).toEqual(["jaime", "ambrosio"]);
+});

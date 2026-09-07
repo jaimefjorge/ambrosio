@@ -42,7 +42,7 @@ function mountFleet() {
     getComputedStyle: () => ({ getPropertyValue: () => "#000" }),
   };
   const api = new Function(...Object.keys(stubs),
-    `${script}\nreturn { render, setMood: butler.setMoodFromBoard, openMenu, askAbout, closeMenu };`)(...Object.values(stubs));
+    `${script}\nreturn { render, setMood: butler.setMoodFromBoard, openMenu, askAbout, closeMenu, sayToAmbrosio };`)(...Object.values(stubs));
   return { api, nodes, posted, html: (id: string) => `${nodes[id]?.innerHTML ?? ""}${nodes[id]?.textContent ?? ""}` };
 }
 
@@ -256,5 +256,52 @@ describe("parked and finished workers fold away", () => {
   test("a paused fleet says so in the header", () => {
     const out = renderPage({ ...empty, paused: { since: "2026-09-07T15:58:00Z", reason: "taking stock" } }).stats;
     expect(out).toContain("PAUSED");
+  });
+});
+
+// --- Talking to Ambrosio from the page ----------------------------------------
+
+describe("the dialog", () => {
+  const entry = (o: any) => ({ id: o.id ?? "e1", at: "2026-09-07T16:30:00Z", ...o });
+
+  test("standing instructions are shown, each with a way to retire it", () => {
+    const out = renderPage({ ...empty, instructions: [{ id: "i1", text: "gatemd first this week", at: "2026-09-07T16:00:00Z" }] }).standing;
+    expect(out).toContain("gatemd first this week");
+    expect(out).toContain('data-retire="i1"');
+  });
+
+  test("the thread shows both sides in order, and marks what Ambrosio actually did", () => {
+    const out = renderPage({ ...empty, dialog: [
+      entry({ id: "a", from: "jaime", text: "pause: taking stock", kind: "action" }),
+      entry({ id: "b", from: "ambrosio", text: "Paused: taking stock.", kind: "action", ok: true, inReplyTo: "a" }),
+      entry({ id: "c", from: "jaime", text: "why is gmc-4or stuck?", kind: "question" }),
+      entry({ id: "d", from: "ambrosio", text: "It is waiting on the gate.", kind: "question", ok: true, inReplyTo: "c" }),
+    ] }).thread;
+    expect(out.indexOf("pause: taking stock")).toBeLessThan(out.indexOf("Paused: taking stock."));
+    expect(out.indexOf("Paused: taking stock.")).toBeLessThan(out.indexOf("why is gmc-4or stuck?"));
+    expect(out).toContain("did");
+    expect(out).toContain("answered");
+  });
+
+  test("a reply that did not work is marked so", () => {
+    const out = renderPage({ ...empty, dialog: [
+      entry({ id: "a", from: "jaime", text: "gmc-9 defer", kind: "action" }),
+      entry({ id: "b", from: "ambrosio", text: "That did not work: beads is locked", kind: "action", ok: false, inReplyTo: "a" }),
+    ] }).thread;
+    expect(out).toContain("could not");
+  });
+
+  test("sending posts to the dialog, not to ask", async () => {
+    const m = mountFleet();
+    await m.api.sayToAmbrosio("gatemd first this week");
+    // The page also polls the board on load; only the dialog post matters here.
+    const said = m.posted.filter((p) => p.body?.text !== undefined);
+    expect(said.map((p) => p.url)).toEqual(["/api/dialog"]);
+    expect(said[0].body).toEqual({ text: "gatemd first this week" });
+    expect(m.posted.some((p) => p.url === "/api/ask")).toBe(false);
+  });
+
+  test("an empty thread invites the first message", () => {
+    expect(renderPage({ ...empty }).thread).toContain("Tell Ambrosio");
   });
 });

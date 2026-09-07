@@ -129,3 +129,10 @@ test("a paused fleet says so in the headline, before anything else", () => {
   const local = new Date("2026-09-07T15:58:00.000Z");
   expect(out[0]).toContain(`since ${String(local.getHours()).padStart(2, "0")}:58`);
 });
+
+test("standing instructions lead the digest so every tick sees them", () => {
+  const out = renderDigest(board({ instructions: ["gatemd first this week", "no e2e after hours"] })).join("\n");
+  expect(out).toContain("STANDING");
+  expect(out.indexOf("STANDING")).toBeLessThan(out.indexOf("FYI") === -1 ? Infinity : out.indexOf("FYI"));
+  expect(out).toContain("gatemd first this week");
+});

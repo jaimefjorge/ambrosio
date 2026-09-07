@@ -12,7 +12,9 @@ import * as queue from "../src/queue.ts";
 import * as journal from "../src/journal.ts";
 import * as imessage from "../src/imessage.ts";
 import * as inbox from "../src/inbox.ts";
-import { runWatch } from "../src/watch.ts";
+import { runWatch, realDeps, routeReply } from "../src/watch.ts";
+import { say } from "../src/dialog.ts";
+import { standing, retire } from "../src/standing.ts";
 import { serve } from "../src/ui.ts";
 import { buildBrief, realMorningDeps } from "../src/morning.ts";
 import { readFocus, setFocus } from "../src/today.ts";
@@ -198,6 +200,7 @@ switch (cmd) {
         questions: board.questions.map((q) => ({ qid: q.qid, ticket: q.ticket, repo: q.repo, urgent: q.urgent, question: queue.summarize(q), options: queue.optionLabels(q) })),
         anomalies: board.anomalies,
         paused: board.paused ?? null,
+        instructions: board.instructions ?? [],
       });
     } else {
       out(renderDigest(board).join("\n"));
@@ -409,6 +412,39 @@ switch (cmd) {
     if (brief.inFlight.length) lines.push("", "ALREADY RUNNING", ...brief.inFlight.map((t) => `  [${t.repo} ${t.id}] ${t.title.slice(0, 70)}`));
     lines.push("", "SOURCES", ...brief.sources.map((s2) => `  ${s2.ok ? "ok  " : "!!  "}${s2.name}: ${s2.detail.slice(0, 80)}`));
     out(lines.join("\n"));
+    break;
+  }
+
+  case "say": {
+    const c = cfg();
+    const text = args.join(" ");
+    if (!text) die('usage: ambrosio say "<instruction, question, or grammar line>"');
+    const w = realDeps();
+    const r = say(c, text, {
+      snapshot: (x) => w.snapshot(x),
+      route: (x, reply, snap) => routeReply(x, reply, snap, w),
+      ask: (x, q) => ask(x, q),
+    });
+    out(r.reply.text);
+    if (r.reply.ok === false) process.exit(1);
+    break;
+  }
+
+  case "instructions": {
+    const c = cfg();
+    const list = standing(c.homeDir);
+    if (asJson) out(list);
+    else out(list.length ? list.map((e) => `${e.id}  ${e.text}`).join("\n") : "nothing standing");
+    break;
+  }
+
+  case "retire": {
+    const c = cfg();
+    const id = args[0];
+    if (!id) die("usage: ambrosio retire <instruction id>");
+    if (!retire(c.homeDir, id)) die(`${id} is not a standing instruction`);
+    journal.append(c.homeDir, `retired standing instruction ${id}`);
+    out(`retired ${id}`);
     break;
   }
 

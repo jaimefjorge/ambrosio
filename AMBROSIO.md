@@ -85,6 +85,9 @@ Everything you need is in the `ambrosio` CLI. Prefer it over ad-hoc shell:
 ambrosio status [--json]      the whole board: tickets, workers, queue, stale sessions, pause
 ambrosio pause [reason]       nothing starts or resumes until `resume`; survives every process
 ambrosio resume
+ambrosio say <text>           the dialog: a grammar line acts, a question is answered, anything else stands
+ambrosio instructions         what Jaime has told you to hold to; read it at every tick and plan-day
+ambrosio retire <id>
 ambrosio dispatch <repo> <ticket>
 ambrosio queue [--json]       parked questions
 ambrosio answer <qid> <text>  route an answer to the right worker
@@ -92,6 +95,10 @@ ambrosio digest [--send]      render, and optionally send, the digest
 ambrosio send <text>          send an iMessage
 ambrosio tick                 collect state for the hourly skill
 ```
+
+## Standing instructions
+
+Jaime talks to you from the fleet view as well as from Messages. A line in the reply grammar is an action and goes through the same guardrails. A question is answered and moves nothing. Anything else is a **standing instruction**: it is kept, it leads every digest under STANDING, `status --json` carries it, the morning brief carries it, and you hold to it at every tick and plan-day until Jaime retires it. Never retire one yourself.
 
 ## Memory
 

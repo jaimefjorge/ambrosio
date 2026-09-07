@@ -3,12 +3,15 @@ import type { AmbrosioConfig } from "./config.ts";
 import { collectBoard } from "./board.ts";
 import { buildPayload, buildWorkerDetail } from "./ui.ts";
 import * as journal from "./journal.ts";
+import { standing } from "./standing.ts";
 
 export type AskContext = {
   board: unknown;
   ticket?: { id: string; repo: string; title: string; status: string; acceptance?: string };
   transcript?: { kind: string; tool?: string; summary: string; at?: string }[];
   journal: string;
+  /** What Jaime has told Ambrosio to hold to, from the dialog, until retired. */
+  instructions?: string[];
 };
 
 export type AskDeps = {
@@ -49,6 +52,9 @@ export function buildAskPrompt(question: string, ctx: AskContext, now = new Date
     "",
   ];
 
+  if (ctx.instructions?.length) {
+    parts.push("## Standing instructions from Jaime", ...ctx.instructions.map((i) => `- ${i}`), "");
+  }
   if (ctx.ticket) {
     parts.push("## The ticket he is asking about", JSON.stringify(ctx.ticket, null, 2), "");
   }
@@ -76,6 +82,7 @@ export function realAskDeps(): AskDeps {
         ticket: detail?.ticket,
         transcript: detail?.transcript?.slice(-40),
         journal: journal.read(cfg.homeDir),
+        instructions: standing(cfg.homeDir).map((e) => e.text),
       };
     },
     run: (cfg, prompt) => {

@@ -19,6 +19,8 @@ export type BoardState = {
   tokensToday?: number;
   /** Set while nothing may start or resume. */
   paused?: Pause | null;
+  /** Standing instructions from the dialog, still in force. */
+  instructions?: string[];
 };
 
 /** Digest keys are positional and stable within one digest: Q1..Qn, P1..Pn, A1..An. */
@@ -74,6 +76,11 @@ export function renderDigest(board: BoardState): string[] {
   if (board.paused) {
     const since = new Date(board.paused.since);
     lines.push(`paused since ${isNaN(since.getTime()) ? "?" : hhmm(since)}: ${board.paused.reason} — reply 'resume' to start again`);
+  }
+
+  if (board.instructions?.length) {
+    lines.push("", "STANDING");
+    for (const i of board.instructions) lines.push(`- ${i}`);
   }
 
   if (board.questions.length > 0) {

@@ -79,6 +79,21 @@
   .folded summary { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); padding: 6px 0; }
   .folded .grid { margin-top: 8px; opacity: .7; }
   #stats .paused { color: var(--failed); font-weight: 700; letter-spacing: .08em; }
+  #dialog { margin-top: 18px; }
+  #standing .inst { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
+  #standing .inst .when { color: var(--dim); font-size: 11px; }
+  #standing .inst button { margin-left: auto; font: inherit; font-size: 11px; background: none; border: 1px solid var(--line); color: var(--dim); cursor: pointer; padding: 2px 8px; }
+  #thread .msg { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  #thread .msg:last-child { border-bottom: none; }
+  #thread .who { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-right: 8px; }
+  #thread .tag { font-size: 11px; color: var(--dim); margin-left: 8px; }
+  #thread .tag.bad { color: var(--failed); }
+  #thread .text { white-space: pre-wrap; }
+  #say-wrap { display: flex; gap: 8px; margin-top: 8px; align-items: flex-start; }
+  #say { flex: 1; font: inherit; font-size: 12px; padding: 6px 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); resize: vertical; }
+  #say:focus { outline: none; border-color: var(--ink); }
+  #say-send { font: inherit; font-size: 12px; padding: 6px 12px; border: 1px solid var(--ink); background: var(--ink); color: var(--panel); cursor: pointer; }
+  #say-send:disabled { opacity: .5; cursor: default; }
   .title { margin-top: 3px; }
   .meta { margin-top: 6px; font-size: 12px; color: var(--dim); display: flex; gap: 12px; flex-wrap: wrap; }
   .detail { margin-top: 6px; font-size: 12px; color: var(--dim); border-left: 2px solid var(--line); padding-left: 8px; }
@@ -204,6 +219,17 @@
 
 <div class="panel" id="answer" hidden></div>
 
+<section id="dialog">
+  <div class="label">STANDING</div>
+  <div id="standing" class="panel"></div>
+  <div class="label">DIALOG</div>
+  <div id="thread" class="panel"></div>
+  <div id="say-wrap">
+    <textarea id="say" rows="2" placeholder="Tell Ambrosio: an instruction that stands until you retire it, a question, or anything from the Messages grammar (pause, resume, A1 accept, gmc-xyz defer, @gmc-xyz …)"></textarea>
+    <button id="say-send">send</button>
+  </div>
+</section>
+
 <div id="menu" hidden></div>
 
 <div id="stale"></div>
@@ -235,7 +261,7 @@
 
 <script src="/butler.js"></script>
 <script>
-const UI_VERSION = "9";        // must match UI_VERSION in src/ui.ts
+const UI_VERSION = "10";       // must match UI_VERSION in src/ui.ts
 const answers = {};            // qid -> draft text, kept across re-renders
 const said = {};               // qid -> what happened when we sent it
 let lastQSig = null;           // questions panel is only rebuilt when it changes
@@ -256,7 +282,50 @@ function tokens(n) {
   return n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : Math.round(n / 1000) + "k";
 }
 
+const TAGS = { action: (ok) => ok ? "did" : "could not", question: () => "answered", instruction: () => "standing", note: () => "" };
+
+function renderDialog(d) {
+  const inst = d.instructions || [];
+  $("standing").innerHTML = inst.length
+    ? inst.map((i) => `<div class="inst"><span class="text">${esc(i.text)}</span><span class="when">${esc(ago(i.at))}</span><button data-retire="${esc(i.id)}">retire</button></div>`).join("")
+    : '<div class="empty">Nothing standing. Anything you say below that is not a question or a command stands until you retire it.</div>';
+  const thread = d.dialog || [];
+  $("thread").innerHTML = thread.length
+    ? thread.map((e) => {
+        const tag = e.from === "ambrosio" ? (TAGS[e.kind] || TAGS.note)(e.ok !== false) : "";
+        return `<div class="msg ${esc(e.from)}"><span class="who">${e.from === "jaime" ? "you" : "ambrosio"}</span>${
+          tag ? `<span class="tag${e.ok === false ? " bad" : ""}">${esc(tag)}</span>` : ""
+        }<div class="text">${esc(e.text)}</div></div>`;
+      }).join("")
+    : '<div class="empty">Tell Ambrosio something. It talks back here, and what you tell it binds.</div>';
+}
+
+async function sayToAmbrosio(text) {
+  text = (text || "").trim();
+  if (!text) return;
+  $("say").disabled = true; $("say-send").disabled = true;
+  try {
+    const r = await fetch("/api/dialog", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    $("say").value = "";
+    renderDialog(d);
+  } catch (err) {
+    $("thread").innerHTML += `<div class="msg ambrosio"><span class="who">ambrosio</span><span class="tag bad">could not</span><div class="text">${esc(err.message)}</div></div>`;
+  } finally {
+    $("say").disabled = false; $("say-send").disabled = false;
+  }
+}
+
+async function retireInstruction(id) {
+  const r = await fetch("/api/dialog/retire", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+  const d = await r.json();
+  renderDialog({ instructions: d.instructions, dialog: last.dialog });
+}
+
 function render(d) {
+  last = d;
+  renderDialog(d);
   $("stats").innerHTML =
     (d.paused ? `<span class="paused">PAUSED</span>` : "") +
     `<span>wip <b>${d.wip.used}/${d.wip.limit}</b></span>` +
@@ -600,6 +669,15 @@ async function askAbout(question, ticket) {
   }
 }
 
+let last = { dialog: [], instructions: [] };
+$("say-send").addEventListener("click", () => sayToAmbrosio($("say").value));
+$("say").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) sayToAmbrosio($("say").value);
+});
+$("standing").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-retire]");
+  if (b) retireInstruction(b.dataset.retire);
+});
 $("ask").addEventListener("keydown", (e) => {
   if (e.key === "Enter") askAbout($("ask").value.trim(), selected || undefined);
 });

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { standing } from "./standing.ts";
 import type { AmbrosioConfig } from "./config.ts";
 import { collectBoard, type Board } from "./board.ts";
 import { assignKeys } from "./digest.ts";
@@ -63,6 +64,8 @@ export type MorningBrief = {
   lessons: Lesson[];
   yesterdayReview: { wentWell: string; doBetter: string } | null;
   capacity: { used: number; limit: number; free: number };
+  /** Standing instructions from the dialog, still in force this morning. */
+  instructions: string[];
   carryover: Carryover[];
   waiting: { key: string; kind: "question" | "plan" | "accept"; id: string; repo: string; title: string }[];
   ready: BriefTicket[];
@@ -171,6 +174,7 @@ export function buildBrief(cfg: AmbrosioConfig, deps: MorningDeps, scope: Scope 
     lessons: safely("Lessons", [] as Lesson[], () => deps.lessons(cfg), sources),
     yesterdayReview: safely("Yesterday's review", null as any, () => deps.yesterdayReview(cfg), sources),
     capacity: { used: busy, limit: cfg.wipLimit, free: Math.max(0, cfg.wipLimit - busy) },
+    instructions: standing(cfg.homeDir).map((e) => e.text),
     carryover: carryoverFrom(text),
     waiting: waiting.filter((w) => inScope(w.repo)),
     ready: (board?.ready ?? []).filter((t) => inScope(t.repo)).map(asTicket),

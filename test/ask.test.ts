@@ -104,3 +104,10 @@ describe("history must not be reported as the present", () => {
     expect(p).toMatch(/It is now .*2026/);
   });
 });
+
+test("standing instructions from the dialog are in front of every answer", async () => {
+  const { buildAskPrompt } = await import("../src/ask.ts");
+  const p = buildAskPrompt("what should run tonight?", { board: {}, journal: "", instructions: ["No e2e work after hours this week."] });
+  expect(p).toContain("## Standing instructions from Jaime");
+  expect(p).toContain("No e2e work after hours this week.");
+});

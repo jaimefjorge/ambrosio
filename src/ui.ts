@@ -16,6 +16,9 @@ import { isAfterHours } from "./afterhours.ts";
 import * as journal from "./journal.ts";
 import { dispatchTicket } from "./dispatch.ts";
 import { canDispatch, wipUsed } from "./board.ts";
+import { readDialog, standing, retire, type Entry } from "./standing.ts";
+import { say } from "./dialog.ts";
+import { realDeps, routeReply } from "./watch.ts";
 
 /**
  * Bumped whenever the API changes. The page carries the same constant and says
@@ -23,7 +26,10 @@ import { canDispatch, wipUsed } from "./board.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "9";
+export const UI_VERSION = "10";
+
+/** How much of the thread the page shows; the file keeps all of it. */
+const DIALOG_TAIL = 40;
 
 export type UiWorker = {
   id?: string;
@@ -66,6 +72,10 @@ export type UiPayload = {
   anomalies: string[];
   tokensToday?: number;
   paused?: { since: string; reason: string } | null;
+  /** Standing instructions from the dialog, still in force. */
+  instructions?: { id: string; text: string; at: string }[];
+  /** The last stretch of the dialog, oldest first. */
+  dialog?: Entry[];
 };
 
 /** Sessions that still hold a WIP slot. */
@@ -133,6 +143,8 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
     anomalies: board.anomalies,
     tokensToday: board.tokensToday,
     paused: board.paused ?? null,
+    instructions: standing(cfg.homeDir).map((e) => ({ id: e.id, text: e.text, at: e.at })),
+    dialog: readDialog(cfg.homeDir).slice(-DIALOG_TAIL),
   };
 }
 
@@ -279,6 +291,38 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
           }
         }
         return Response.json({ today: readReview(cfg), lessons: recentLessons(cfg, 5) });
+      }
+
+      if (url.pathname === "/api/dialog" && req.method === "GET") {
+        return Response.json({ instructions: standing(cfg.homeDir), dialog: readDialog(cfg.homeDir).slice(-DIALOG_TAIL) });
+      }
+
+      // Jaime talking to Ambrosio. Actions go through routeReply with the
+      // real deps — the same path a text takes — so the page is not a back door.
+      if (url.pathname === "/api/dialog" && req.method === "POST") {
+        try {
+          const { text } = (await req.json()) as { text?: string };
+          const w = realDeps();
+          const r = say(cfg, text ?? "", {
+            snapshot: (c) => w.snapshot(c),
+            route: (c, reply, snap) => routeReply(c, reply, snap, w),
+            ask: (c, q) => ask(c, q),
+          });
+          return Response.json({ ok: r.reply.ok !== false, reply: r.reply, instructions: standing(cfg.homeDir), dialog: r.entries.slice(-DIALOG_TAIL) });
+        } catch (e) {
+          return Response.json({ ok: false, error: (e as Error).message }, { status: 400 });
+        }
+      }
+
+      if (url.pathname === "/api/dialog/retire" && req.method === "POST") {
+        try {
+          const { id } = (await req.json()) as { id?: string };
+          const done = id ? retire(cfg.homeDir, id) : false;
+          if (done) journal.append(cfg.homeDir, `retired standing instruction ${id}`);
+          return Response.json({ ok: done, instructions: standing(cfg.homeDir) });
+        } catch (e) {
+          return Response.json({ ok: false, error: (e as Error).message }, { status: 400 });
+        }
       }
 
       if (url.pathname === "/api/ask" && req.method === "POST") {
