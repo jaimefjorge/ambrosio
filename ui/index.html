@@ -92,6 +92,12 @@
   #drawer .pre { white-space: pre-wrap; }
   #drawer .small { font-size: 11px; color: var(--dim); max-height: 260px; overflow: auto; }
   #drawer .crit { margin: 0; padding-left: 18px; }
+  #drawer .brief h4 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  #drawer .brief h4:first-child { margin-top: 0; }
+  #drawer .brief p { margin: 4px 0; }
+  #drawer .brief ul { margin: 4px 0; padding-left: 18px; }
+  #drawer .brief code { font-size: 11px; background: var(--line); padding: 0 3px; }
+  .q .brief-line { font-size: 12px; margin: 4px 0 2px; font-style: italic; }
   #drawer .crit li { margin: 2px 0; }
   #drawer .land.ok { color: var(--ok, #2a7); }
   #drawer .land.no { color: var(--failed); }
@@ -289,7 +295,7 @@
 
 <script src="/butler.js"></script>
 <script>
-const UI_VERSION = "12";       // must match UI_VERSION in src/ui.ts
+const UI_VERSION = "13";       // must match UI_VERSION in src/ui.ts
 const answers = {};            // qid -> draft text, kept across re-renders
 const said = {};               // qid -> what happened when we sent it
 let lastQSig = null;           // questions panel is only rebuilt when it changes
@@ -404,7 +410,8 @@ function render(d) {
       .concat(d.accept.map((x) => `
         <div class="q" data-decide="accept" data-ticket="${esc(x.id)}" data-repo="${esc(x.repo)}"${x.landable && !x.landable.ok ? ' data-forced="1"' : ""}>
           <div class="ttl" data-open="${esc(x.id)}" data-repo="${esc(x.repo)}" title="open the details"><span class="key">${esc(x.key)}</span> ${esc(x.title)} <span class="more">details ›</span></div>
-          <div class="opts">${esc(x.repo)} ${esc(x.id)} — finished, waiting for you to accept</div>
+          <div class="opts">${esc(x.repo)} ${esc(x.id)} — finished, waiting for you to accept${x.iteration ? ` · round ${esc(String(x.iteration))}` : ""}</div>
+          ${x.brief ? `<div class="brief-line">${esc(x.brief)}</div>` : ""}
           ${x.landable ? `<div class="land ${x.landable.ok ? "ok" : "no"}">${
             x.landable.pr ? `<a href="${esc(x.landable.pr.url)}" target="_blank">PR #${esc(String(x.landable.pr.number))}</a> · ` : ""
           }${x.landable.ok ? "landable" : "not landable: " + esc(x.landable.reasons.join("; "))}</div>` : ""}
@@ -644,6 +651,27 @@ function renderDetail(d) {
   $("d-body").innerHTML = parts.join("");
 }
 
+// Just enough markdown for a brief: ## headings, - bullets, `code`, paragraphs.
+function md(text) {
+  const out = [];
+  let list = [];
+  const flush = () => { if (list.length) { out.push(`<ul>${list.join("")}</ul>`); list = []; } };
+  for (const raw of String(text).split("\n")) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+    const h = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (h) { flush(); out.push(`<h4>${inline(h[2])}</h4>`); continue; }
+    const b = /^[-*]\s+(.*)$/.exec(line);
+    if (b) { list.push(`<li>${inline(b[1])}</li>`); continue; }
+    flush(); out.push(`<p>${inline(line)}</p>`);
+  }
+  flush();
+  return out.join("");
+}
+function inline(s) {
+  return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+}
+
 function renderTicket(d) {
   const t = d.ticket;
   $("d-name").textContent = t.id;
@@ -652,6 +680,13 @@ function renderTicket(d) {
   if (head) head.className = "head ticket";
   const parts = [];
   parts.push(`<div class="box"><b>${esc(t.title)}</b><br><span style="color:var(--dim)">${esc(t.repo)}${d.externalRef ? ` · <a href="${esc(d.externalRef)}" target="_blank">${esc(d.externalRef.replace(/^https?:\/\//, ""))}</a>` : ""}</span></div>`);
+  // The brief comes first: it is how he accepts without having watched.
+  if (d.brief && d.brief.ok) {
+    parts.push(`<div class="sub">Read this first <span class="since">— Ambrosio's brief${d.brief.iteration ? `, round ${esc(String(d.brief.iteration))}` : ""}</span></div>`);
+    parts.push(`<div class="box brief">${md(d.brief.text)}</div>`);
+  } else if (t.status === "in_review") {
+    parts.push('<div class="sub">Read this first</div><div class="box empty">No brief yet — Ambrosio writes one when work reaches review; it is not written yet.</div>');
+  }
   if (d.landable) {
     parts.push('<div class="sub">Can it land?</div>');
     parts.push(`<div class="box land ${d.landable.ok ? "ok" : "no"}">${d.landable.pr ? `<a href="${esc(d.landable.pr.url)}" target="_blank">PR #${esc(String(d.landable.pr.number))}</a> · ` : ""}${d.landable.ok ? "yes — landable" : "not yet: " + esc(d.landable.reasons.join("; "))}</div>`);

@@ -19,6 +19,7 @@ import { canDispatch, wipUsed } from "./board.ts";
 import * as tracker from "./tracker.ts";
 import * as timeline from "./timeline.ts";
 import type { TimelineEvent } from "./timeline.ts";
+import { readBrief, type Brief } from "./handover.ts";
 import { repoByName } from "./config.ts";
 import { readDialog, standing, retire, type Entry } from "./standing.ts";
 import { say } from "./dialog.ts";
@@ -30,7 +31,7 @@ import { realDeps, routeReply } from "./watch.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "12";
+export const UI_VERSION = "13";
 
 /** How much of the thread the page shows; the file keeps all of it. */
 const DIALOG_TAIL = 40;
@@ -63,7 +64,7 @@ export type UiQuestion = {
 };
 
 /** A plan to review, or finished work to accept: the other two things that wait on Jaime. */
-export type UiDecision = { key: string; id: string; repo: string; title: string; status: string; iteration?: number; landable?: { ok: boolean; pr: { number: number; url: string } | null; reasons: string[] } };
+export type UiDecision = { key: string; id: string; repo: string; title: string; status: string; iteration?: number; brief?: string; landable?: { ok: boolean; pr: { number: number; url: string } | null; reasons: string[] } };
 
 export type UiPayload = {
   now: string;
@@ -137,7 +138,8 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
     Object.entries(from).map(([key, t]) => {
       const land = board.landable?.[t.id];
       const round = board.iterations?.[t.id];
-      return { key, id: t.id, repo: t.repo ?? "", title: t.title, status: t.status, ...(round ? { iteration: round } : {}), ...(land ? { landable: { ok: land.ok, pr: land.pr ? { number: land.pr.number, url: land.pr.url } : null, reasons: land.reasons } } : {}) };
+      const brief = board.briefs?.[t.id];
+      return { key, id: t.id, repo: t.repo ?? "", title: t.title, status: t.status, ...(round ? { iteration: round } : {}), ...(brief ? { brief } : {}), ...(land ? { landable: { ok: land.ok, pr: land.pr ? { number: land.pr.number, url: land.pr.url } : null, reasons: land.reasons } } : {}) };
     });
 
   return {
@@ -181,6 +183,8 @@ export type UiTicketDetail = {
   worker?: UiWorker;
   /** Everything that happened to it, oldest first. */
   timeline: TimelineEvent[];
+  /** Ambrosio's hand-over brief for this round, or null if not written yet. */
+  brief: Brief | null;
   /** Rounds of rework so far. */
   iteration: number;
 };
@@ -239,6 +243,7 @@ export function buildTicketDetail(cfg: AmbrosioConfig, board: Board, repo: strin
     worker: payload.workers.find((w) => w.name?.toLowerCase() === t.id.toLowerCase()),
     timeline: events,
     iteration: timeline.iterationOf(events),
+    brief: readBrief(cfg.homeDir, repo, t.id),
   };
 }
 

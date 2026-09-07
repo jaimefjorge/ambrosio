@@ -404,3 +404,23 @@ describe("clicking finished work opens its context", () => {
     expect(out).toContain("details");
   });
 });
+
+describe("the brief in the drawer", () => {
+  test("is the first thing, rendered as sections, when it exists", () => {
+    const m = mountFleet();
+    m.api.renderTicket({
+      ticket: { id: "gmc-axx", repo: "gatemd-core", title: "x", status: "in_review", priority: 3, acceptance: [] },
+      brief: { text: "## The problem\nTests failed under colour.\n\n## Recommendation\nAccept.", ok: true, iteration: 0, at: "", summary: "Accept." },
+      handover: "", comments: [], defects: [], plan: "", evidence: "", timeline: [], iteration: 0,
+    });
+    const body = m.html("d-body");
+    expect(body.indexOf("Read this first")).toBeLessThan(body.indexOf("Done when") === -1 ? Infinity : body.indexOf("Done when"));
+    expect(body).toContain("The problem");
+    expect(body).toContain("Tests failed under colour.");
+  });
+  test("says when it is not written yet rather than showing nothing", () => {
+    const m = mountFleet();
+    m.api.renderTicket({ ticket: { id: "x", repo: "r", title: "x", status: "in_review", priority: 3, acceptance: [] }, brief: null, handover: "", comments: [], defects: [], plan: "", evidence: "", timeline: [], iteration: 0 });
+    expect(m.html("d-body")).toMatch(/brief.*not written yet|no brief yet/i);
+  });
+});

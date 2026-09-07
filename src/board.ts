@@ -11,6 +11,7 @@ import { standing } from "./standing.ts";
 import { landable as assessLandable, type Assessment } from "./landable.ts";
 import * as timeline from "./timeline.ts";
 import { orderReady } from "./chain.ts";
+import { readBrief } from "./handover.ts";
 
 export type Deps = {
   listTickets: (repo: { name: string; path: string; prefix: string }, statuses?: string[]) => Ticket[];
@@ -92,12 +93,15 @@ export function collectBoard(
   // ticket rather than leaving Jaime to open each PR and find out.
   const landableBy: Record<string, Assessment> = {};
   const iterations: Record<string, number> = {};
+  const briefs: Record<string, string> = {};
   // Defects that hold a parent back from acceptance: they go to the front of
   // the queue, because finishing what is blocked beats starting what is new.
   const blocking: Record<string, string> = {};
   for (const t of accept) {
     const n = timeline.iterationOf(timeline.read(cfg.homeDir, t.repo ?? "", t.id));
     if (n > 0) iterations[t.id] = n;
+    const b = readBrief(cfg.homeDir, t.repo ?? "", t.id);
+    if (b?.summary) briefs[t.id] = b.summary;
     try {
       landableBy[t.id] = landable(cfg, t.repo ?? "", t.id);
       const m = /open defects: ([^;]+)/.exec(landableBy[t.id].reasons.join("; "));
@@ -120,6 +124,7 @@ export function collectBoard(
     stale,
     landable: landableBy,
     iterations,
+    briefs,
     paused: readPause(cfg.homeDir),
     instructions: standing(cfg.homeDir).map((e) => e.text),
     ready: orderReady(all.filter((t) => t.status === "open"), blocking),

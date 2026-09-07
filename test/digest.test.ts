@@ -157,3 +157,11 @@ test("ACCEPT says which round of rework a ticket is on, when it has been sent ba
   })).join("\n");
   expect(out).toContain("round 2");
 });
+
+test("ACCEPT carries Ambrosio's one-line recommendation when the brief exists", () => {
+  const out = renderDigest(board({
+    accept: [t({ id: "gmc-axx", repo: "gatemd-core", title: "spinner tests" })],
+    briefs: { "gmc-axx": "Accept — test-only, proven under every colour state." },
+  })).join("\n");
+  expect(out).toContain("Accept — test-only, proven under every colour state.");
+});

@@ -6,6 +6,7 @@ import { nightKey, readNight, recordStart } from "./night.ts";
 import { autolinkPass, realAutolinkDeps } from "./autolink.ts";
 import * as timeline from "./timeline.ts";
 import { landedPass, realLandedDeps } from "./landed.ts";
+import { handoverBrief } from "./handover.ts";
 import { defectChainPass, realChainDeps } from "./chain.ts";
 
 export type Action =
@@ -52,6 +53,8 @@ export type WatchDeps = {
   observe?: (cfg: AmbrosioConfig) => { repo: string; ticket: string; from?: string; to: string }[];
   /** After acceptance: merged? main green? Files a defect if main went red. */
   landed?: (cfg: AmbrosioConfig) => { merged: string[]; green: string[]; red: string[] };
+  /** Write the hand-over brief for a ticket that just reached in_review. */
+  brief?: (cfg: AmbrosioConfig, repo: string, ticket: string) => unknown;
   /** A closed defect wakes the parent waiting for acceptance. */
   defectChain?: (cfg: AmbrosioConfig, changes: { repo: string; ticket: string; from?: string; to: string }[]) => { woke: string[] };
 };
@@ -242,6 +245,7 @@ export function realDeps(): WatchDeps {
     autolink: (cfg) => autolinkPass(cfg, realAutolinkDeps()),
     observe: (cfg) => timeline.observe(cfg, collectBoard(cfg).all).map((e) => ({ repo: String(e.repo ?? ""), ticket: String(e.ticket ?? ""), from: e.from, to: e.status ?? "" })),
     landed: (cfg) => landedPass(cfg, realLandedDeps()),
+    brief: (cfg, repo, ticket) => handoverBrief(cfg, repo, ticket),
     defectChain: (cfg, changes) => defectChainPass(cfg, realChainDeps(), changes),
 
     wake: (cfg) => {
@@ -287,6 +291,9 @@ export function onePass(
   const handled = drain(cfg, deps);
   // The timeline sees what workers did to their own tickets since last pass.
   const changes = deps.observe?.(cfg) ?? [];
+  // Work that just reached in_review gets its story written before Jaime
+  // sees the row — the brief is how he accepts without having watched.
+  for (const ch of changes) if (ch.to === "in_review" && deps.brief) deps.brief(cfg, ch.repo, ch.ticket);
   if (!paused) {
     // Orphaned defects are what rule 4 cannot see; link them before anything
     // downstream reads the board.

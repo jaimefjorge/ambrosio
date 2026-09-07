@@ -265,3 +265,17 @@ describe("after acceptance and the defect chain run each pass", () => {
     resume(home);
   });
 });
+
+describe("the hand-over brief", () => {
+  test("is written when a ticket reaches in_review, and for each ticket already waiting without one", async () => {
+    const home = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "amb-br-"));
+    const c = { ...cfg, homeDir: home } as AmbrosioConfig;
+    const briefed: string[] = [];
+    const { deps } = spyDeps([], {
+      observe: () => [{ repo: "gatemd", ticket: "T-3", from: "verifying", to: "in_review" }],
+      brief: (_c, repo, ticket) => { briefed.push(`${repo}/${ticket}`); return null; },
+    });
+    onePass(c, deps);
+    expect(briefed).toEqual(["gatemd/T-3"]);
+  });
+});

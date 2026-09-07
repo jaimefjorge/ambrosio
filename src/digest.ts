@@ -21,6 +21,8 @@ export type BoardState = {
   paused?: Pause | null;
   /** Standing instructions from the dialog, still in force. */
   instructions?: string[];
+  /** For tickets in `accept`: Ambrosio's one-line recommendation from the hand-over brief. */
+  briefs?: Record<string, string>;
   /** For tickets in `accept`: how many times each has been sent back. */
   iterations?: Record<string, number>;
   /** For tickets in `accept`: could Jaime merge each one right now. */
@@ -125,6 +127,8 @@ export function renderDigest(board: BoardState): string[] {
         t.metadata?.review ? String(t.metadata.review).slice(0, 80) : null,
       ].filter(Boolean);
       if (bits.length) lines.push(`  ${bits.join(" · ")}`);
+      const brief = board.briefs?.[t.id];
+      if (brief) lines.push(`  ${brief}`);
     }
   }
 
