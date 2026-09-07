@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { repoByName, type AmbrosioConfig } from "./config.ts";
 import * as tracker from "./tracker.ts";
 import * as journal from "./journal.ts";
+import { landable, type Assessment } from "./landable.ts";
 import { deliverAnswer } from "./dispatch.ts";
 
 export class DecideError extends Error {}
@@ -76,6 +77,8 @@ export type DecideDeps = {
   journal: (cfg: AmbrosioConfig, line: string) => void;
   /** Defects discovered while doing this ticket that are still open. */
   openDefects: (cfg: AmbrosioConfig, repo: string, ticket: string) => { id: string; title: string }[];
+  /** Could Jaime merge this right now? PR, checks, Verity, defects — every reason at once. */
+  landable?: (cfg: AmbrosioConfig, repo: string, ticket: string) => Assessment;
 };
 
 export const realDecideDeps: DecideDeps = {
@@ -85,6 +88,7 @@ export const realDecideDeps: DecideDeps = {
   resume: (cfg, ticket, repo, text) => deliverAnswer(cfg, { ticket, repo, text }),
   journal: (cfg, line) => journal.append(cfg.homeDir, line),
   openDefects: (cfg, repo, ticket) => tracker.openDefects(repoByName(cfg, repo), ticket),
+  landable: (cfg, repo, ticket) => landable(cfg, repo, ticket),
 };
 
 /**
@@ -143,7 +147,16 @@ export function applyDecision(
             `. Close or defer them first, or accept anyway if you have decided they do not block this.`,
         );
       }
-      const over = defects.length > 0 ? ` over ${defects.length} open defect${defects.length > 1 ? "s" : ""}` : "";
+      // Rule 4, widened: what is not landable is not finished. Same shape —
+      // every reason named, Jaime can overrule, the journal says he did.
+      const land = deps.landable?.(cfg, d.repo, d.ticket);
+      if (land && !land.ok && !d.force) {
+        throw new DecideError(`${d.ticket} is not landable: ${land.reasons.join("; ")}. Fix those first, or accept anyway if you have decided they do not block this.`);
+      }
+      const over = [
+        defects.length > 0 ? `over ${defects.length} open defect${defects.length > 1 ? "s" : ""}` : "",
+        land && !land.ok ? `not landable (${land.reasons.join("; ")})` : "",
+      ].filter(Boolean).map((x) => ` ${x}`).join(",");
       deps.close(cfg, d.repo, d.ticket, `accepted by Jaime${over}${note ? `: ${note}` : ""}`);
       deps.journal(cfg, `${d.ticket} accepted and closed${over}${note ? ` (${note})` : ""}`);
       return { ticket: d.ticket, outcome: "closed" };

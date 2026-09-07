@@ -186,3 +186,23 @@ export function needsHuman(repo: RepoConfig): Ticket[] {
 export function active(repo: RepoConfig): Ticket[] {
   return list(repo, [...ACTIVE_STATUSES]);
 }
+
+/** Any link in either direction: a ticket with one is not an orphan. */
+export function hasLinks(repo: RepoConfig, id: string): boolean {
+  try {
+    const down = bdJson<Ticket[]>(repo, ["dep", "list", id]) ?? [];
+    if (down.length) return true;
+    return (bdJson<Ticket[]>(repo, ["dep", "list", id, "--direction", "up"]) ?? []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** `child` came out of `parent`: what rule 4 reads to refuse an acceptance. */
+export function addDep(repo: RepoConfig, child: string, parent: string, type = "discovered-from"): void {
+  bd(repo, ["dep", "add", child, parent, "--type", type, "--json"]);
+}
+
+export function setPriority(repo: RepoConfig, id: string, priority: number): void {
+  bd(repo, ["update", id, "-p", String(priority), "--json"]);
+}

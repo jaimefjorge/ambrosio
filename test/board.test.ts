@@ -183,3 +183,23 @@ test("a worker with no transcript yet is not declared stale", () => {
   expect(wipUsed(board)).toBe(1);
   expect(board.stale).toEqual([]);
 });
+
+// --- Landable rides on the board ---------------------------------------------
+
+test("every ticket waiting for acceptance carries its landable assessment", () => {
+  const board = collectBoard(
+    cfg(),
+    NOW,
+    deps([t({ id: "c-3", status: "in_review" }), t({ id: "c-1", status: "open" })], []),
+    () => null,
+    (_c, _r, id) => ({ ok: id !== "c-3", pr: null, reasons: id === "c-3" ? ["no PR found for this ticket"] : [], at: "" }),
+  );
+  expect(board.landable["c-3"].ok).toBe(false);
+  expect(board.landable["c-1"]).toBeUndefined();
+});
+
+test("landable failing to compute is an anomaly, not a crash", () => {
+  const board = collectBoard(cfg(), NOW, deps([t({ id: "c-3", status: "in_review" })], []), () => null, () => { throw new Error("gh down"); });
+  expect(board.anomalies.join(" ")).toContain("gh down");
+  expect(board.accept).toHaveLength(1);
+});

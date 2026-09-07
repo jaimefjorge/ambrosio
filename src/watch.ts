@@ -3,6 +3,7 @@ import type { InboundMessage } from "./inbox.ts";
 import { parseReplies, type Reply } from "./replies.ts";
 import { isPaused, pause as setPause, resume as clearPause } from "./pause.ts";
 import { nightKey, readNight, recordStart } from "./night.ts";
+import { autolinkPass, realAutolinkDeps } from "./autolink.ts";
 
 export type Action =
   | { kind: "answered"; qid: string; ticket: string; delivery: "resumed" | "deferred" }
@@ -42,6 +43,8 @@ export type WatchDeps = {
   deliverFeedback?: (cfg: AmbrosioConfig) => { ticket: string }[];
   /** Keep the night going: park what is stuck, start what needs no one. */
   night?: (cfg: AmbrosioConfig) => { parked: string[]; dispatched: string[] };
+  /** Link defects a worker filed without saying where they came from. */
+  autolink?: (cfg: AmbrosioConfig) => { linked: { child: string; parent: string }[] };
 };
 
 /**
@@ -227,6 +230,7 @@ export function realDeps(): WatchDeps {
     deliverFeedback: (cfg) => deliverPendingFeedback(cfg),
     notify: (cfg) => notifyPass(cfg, realNotifyDeps()),
     night: (cfg) => afterHoursPass(cfg, realNightDeps()),
+    autolink: (cfg) => autolinkPass(cfg, realAutolinkDeps()),
 
     wake: (cfg) => {
       const now = Date.now();
@@ -269,6 +273,9 @@ export function onePass(
   // hand-over waits for the worker to park just as an answer does.
   const feedback = paused ? [] : (deps.deliverFeedback?.(cfg) ?? []);
   const handled = drain(cfg, deps);
+  // Orphaned defects are what rule 4 cannot see; link them before anything
+  // downstream reads the board.
+  if (!paused) deps.autolink?.(cfg);
   // Outbound last: a reply handled in this same pass should be reflected in
   // whatever Jaime is about to be told.
   const notified = deps.notify?.(cfg) ?? { digest: false, urgent: [], reviewAsked: false };

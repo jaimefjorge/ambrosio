@@ -21,6 +21,8 @@ export type BoardState = {
   paused?: Pause | null;
   /** Standing instructions from the dialog, still in force. */
   instructions?: string[];
+  /** For tickets in `accept`: could Jaime merge each one right now. */
+  landable?: Record<string, { ok: boolean; pr: { number: number } | null; reasons: string[] }>;
 };
 
 /** Digest keys are positional and stable within one digest: Q1..Qn, P1..Pn, A1..An. */
@@ -110,8 +112,10 @@ export function renderDigest(board: BoardState): string[] {
     lines.push("", "ACCEPT");
     for (const [key, t] of Object.entries(keys.accept)) {
       lines.push(`${key} ${ticketLabel(t)}`);
+      const land = board.landable?.[t.id];
       const bits = [
-        t.metadata?.pr ? `PR ${t.metadata.pr}` : null,
+        land?.pr ? `PR #${land.pr.number}` : t.metadata?.pr ? `PR ${t.metadata.pr}` : null,
+        land ? (land.ok ? "landable" : `not landable: ${land.reasons.join("; ")}`) : null,
         t.metadata?.tests ? `tests ${t.metadata.tests}` : null,
         t.metadata?.verity ? `Verity ${t.metadata.verity}` : null,
         t.metadata?.review ? String(t.metadata.review).slice(0, 80) : null,

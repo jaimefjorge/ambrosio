@@ -8,6 +8,7 @@ import { lastActivityAt } from "./transcript.ts";
 import { duration, type BoardState } from "./digest.ts";
 import { readPause } from "./pause.ts";
 import { standing } from "./standing.ts";
+import { landable as assessLandable, type Assessment } from "./landable.ts";
 
 export type Deps = {
   listTickets: (repo: { name: string; path: string; prefix: string }, statuses?: string[]) => Ticket[];
@@ -22,6 +23,8 @@ const realDeps: Deps = {
 };
 
 export type Board = BoardState & {
+  /** For every ticket in `accept`: could Jaime merge it right now, and if not why. */
+  landable: Record<string, Assessment>;
   ready: Ticket[];
   needsInput: Ticket[];
   all: Ticket[];
@@ -40,6 +43,7 @@ export function collectBoard(
   now = new Date(),
   deps: Deps = realDeps,
   lastActivity: (a: Agent) => Date | null = (a) => (a.sessionId ? lastActivityAt(a.sessionId, a.cwd) : null),
+  landable: (cfg: AmbrosioConfig, repo: string, ticket: string) => Assessment = assessLandable,
 ): Board {
   const all: Ticket[] = [];
   const errors: string[] = [];
@@ -82,6 +86,17 @@ export function collectBoard(
     else working.push({ agent: a, ticket });
   }
 
+  // "Work should always be in a mergeable state": the board asserts it per
+  // ticket rather than leaving Jaime to open each PR and find out.
+  const landableBy: Record<string, Assessment> = {};
+  for (const t of accept) {
+    try {
+      landableBy[t.id] = landable(cfg, t.repo ?? "", t.id);
+    } catch (e) {
+      errors.push(`could not assess whether ${t.id} is landable: ${(e as Error).message}`);
+    }
+  }
+
   const anomalies = [...errors, ...detectAnomalies(cfg, all, workers, questions, lastActivity, now)];
 
   return {
@@ -93,6 +108,7 @@ export function collectBoard(
     blocked,
     anomalies,
     stale,
+    landable: landableBy,
     paused: readPause(cfg.homeDir),
     instructions: standing(cfg.homeDir).map((e) => e.text),
     ready: all.filter((t) => t.status === "open"),

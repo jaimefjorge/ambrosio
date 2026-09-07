@@ -136,3 +136,16 @@ test("standing instructions lead the digest so every tick sees them", () => {
   expect(out.indexOf("STANDING")).toBeLessThan(out.indexOf("FYI") === -1 ? Infinity : out.indexOf("FYI"));
   expect(out).toContain("gatemd first this week");
 });
+
+test("ACCEPT says whether each piece of work is landable, and why not", () => {
+  const out = renderDigest(board({
+    accept: [t({ id: "gmc-axx", repo: "gatemd-core", title: "spinner tests" }), t({ id: "gmc-gfh", repo: "gatemd-core", title: "migration e2e" })],
+    landable: {
+      "gmc-axx": { ok: false, pr: { number: 161, url: "", mergeable: "MERGEABLE", draft: true, checks: [] }, reasons: ["unit pending", "open defects: gmc-sz7"], at: "" },
+      "gmc-gfh": { ok: true, pr: { number: 156, url: "", mergeable: "MERGEABLE", draft: true, checks: [] }, reasons: [], at: "" },
+    },
+  })).join("\n");
+  expect(out).toContain("A1");
+  expect(out).toContain("PR #161 · not landable: unit pending; open defects: gmc-sz7");
+  expect(out).toContain("PR #156 · landable");
+});

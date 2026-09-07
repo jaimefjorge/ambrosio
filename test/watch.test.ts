@@ -228,3 +228,19 @@ describe("paused", () => {
     expect(r.handled[0].actions[0]).toEqual({ kind: "paused", reason: "back tomorrow" });
   });
 });
+
+describe("autolink runs each pass", () => {
+  test("orphaned defects get linked on a normal pass, and not while paused", async () => {
+    const { pause, resume } = await import("../src/pause.ts");
+    const home = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "amb-al-"));
+    const c = { ...cfg, homeDir: home } as AmbrosioConfig;
+    const { deps, log } = spyDeps([], { autolink: () => { log.push("autolink"); return { linked: [] }; } });
+    onePass(c, deps);
+    expect(log).toContain("autolink");
+    pause(home, "x");
+    log.length = 0;
+    onePass(c, deps);
+    expect(log).not.toContain("autolink");
+    resume(home);
+  });
+});

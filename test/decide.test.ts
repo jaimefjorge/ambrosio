@@ -168,3 +168,24 @@ describe("accepting work that still has known defects", () => {
     expect(applyDecision(cfg, { kind: "reject", ...at, note: "fix these first" }, deps).outcome).toBe("resumed");
   });
 });
+
+// --- Rule 4, widened: nothing that is not landable gets accepted -----------------
+
+test("accept refuses work that is not landable, naming every reason", () => {
+  const { deps, log } = spy({
+    openDefects: () => [],
+    landable: () => ({ ok: false, pr: null, reasons: ["integration failed", "no Verity PASS recorded at hand-over"], at: "" }),
+  });
+  expect(() => applyDecision(cfg, { kind: "accept", ...at }, deps)).toThrow(/integration failed.*no Verity PASS/);
+  expect(log.some((l) => l.startsWith("close"))).toBe(false);
+});
+
+test("Jaime can overrule it deliberately, and the journal says he did", () => {
+  const { deps, log } = spy({
+    openDefects: () => [],
+    landable: () => ({ ok: false, pr: null, reasons: ["unit pending"], at: "" }),
+  });
+  applyDecision(cfg, { kind: "accept", ...at, force: true }, deps);
+  expect(log.some((l) => l.startsWith("close"))).toBe(true);
+  expect(log.join(" ")).toContain("not landable");
+});
