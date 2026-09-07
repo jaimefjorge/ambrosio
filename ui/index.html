@@ -84,6 +84,10 @@
   #tabs button.on { color: var(--ink); border-bottom-color: var(--ink); }
   #tabs .badge { display: inline-block; margin-left: 6px; min-width: 14px; padding: 0 4px; border-radius: 8px; background: var(--ink); color: var(--panel); font-size: 10px; text-align: center; }
   #dialog { margin-top: 4px; }
+  .q .land { font-size: 12px; margin: 4px 0 2px; }
+  .q .land.ok { color: var(--ok, #2a7); }
+  .q .land.no { color: var(--failed); }
+  .q .land a { color: inherit; }
   #standing .inst { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
   #standing .inst .when { color: var(--dim); font-size: 11px; }
   #standing .inst button { margin-left: auto; font: inherit; font-size: 11px; background: none; border: 1px solid var(--line); color: var(--dim); cursor: pointer; padding: 2px 8px; }
@@ -387,11 +391,14 @@ function render(d) {
           <div class="said" data-said="${esc(x.id)}">${esc(said[x.id] || "")}</div>
         </div>`))
       .concat(d.accept.map((x) => `
-        <div class="q" data-decide="accept" data-ticket="${esc(x.id)}" data-repo="${esc(x.repo)}">
+        <div class="q" data-decide="accept" data-ticket="${esc(x.id)}" data-repo="${esc(x.repo)}"${x.landable && !x.landable.ok ? ' data-forced="1"' : ""}>
           <div><span class="key">${esc(x.key)}</span> ${esc(x.title)}</div>
           <div class="opts">${esc(x.repo)} ${esc(x.id)} — finished, waiting for you to accept</div>
+          ${x.landable ? `<div class="land ${x.landable.ok ? "ok" : "no"}">${
+            x.landable.pr ? `<a href="${esc(x.landable.pr.url)}" target="_blank">PR #${esc(String(x.landable.pr.number))}</a> · ` : ""
+          }${x.landable.ok ? "landable" : "not landable: " + esc(x.landable.reasons.join("; "))}</div>` : ""}
           <div class="answer">
-            <button class="go send" data-kind="accept">accept</button>
+            <button class="go send" data-kind="accept">${x.landable && !x.landable.ok ? "accept anyway" : "accept"}</button>
             <input placeholder="or say what is wrong…">
             <button class="go" data-kind="reject">reject</button>
           </div>
@@ -505,7 +512,7 @@ async function sendDecision(row, kind) {
     lastQSig = null;
   } catch (e) {
     said[id] = "! " + e.message;
-    if (kind === "accept" && /still open/.test(e.message)) {
+    if (kind === "accept" && /still open|not landable/.test(e.message)) {
       row.dataset.forced = "1";
       const btn = row.querySelector('button[data-kind="accept"]');
       if (btn) btn.textContent = "accept anyway";

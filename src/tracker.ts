@@ -116,6 +116,9 @@ export type CreateInput = {
   externalRef?: string;
   labels?: string[];
   metadata?: Record<string, any>;
+
+  /** e.g. ["discovered-from:gmc-axx"] */
+  deps?: string[];
 };
 
 export function create(repo: RepoConfig, input: CreateInput): Ticket {
@@ -127,6 +130,7 @@ export function create(repo: RepoConfig, input: CreateInput): Ticket {
   if (input.externalRef) args.push("--external-ref", input.externalRef);
   if (input.labels?.length) args.push("-l", input.labels.join(","));
   if (input.metadata) args.push("--metadata", JSON.stringify(input.metadata));
+  if (input.deps?.length) args.push("--deps", input.deps.join(","));
   const created = bdJson<Ticket | Ticket[]>(repo, args);
   const t = Array.isArray(created) ? created[0] : created;
   return tag(repo, t);
@@ -164,13 +168,42 @@ export function close(repo: RepoConfig, id: string, reason: string): void {
  * what came out of it.
  */
 export function discoveredFrom(repo: RepoConfig, id: string): Ticket[] {
+  // Beads lists discovered-from children downward from the parent, and the
+  // same downward list carries the parent's own parent. Direction cannot tell
+  // them apart; time can: what was discovered while doing this ticket was
+  // created after it. (2026-09-07: reading `--direction up` alone missed
+  // gmc-sz7, and rule 4 saw nothing.)
+  let born = 0;
   try {
-    return bdJson<Ticket[]>(repo, ["dep", "list", id, "--direction", "up"]) ?? [];
+    const me = get(repo, id);
+    born = me.created_at ? new Date(me.created_at).getTime() : 0;
   } catch {
-    // A ticket with no links makes bd exit non-zero on some versions; that is
-    // not a reason to block an acceptance.
     return [];
   }
+  const seen = new Map<string, Ticket>();
+  // `--deps discovered-from:P` on create puts the child in P's `up` list;
+  // `bd dep add` by hand can put it in the `down` list, next to P's own
+  // parent. Up is trusted as is; down only for tickets strictly newer than P.
+  for (const dir of [["--direction", "up"], []]) {
+    const strict = dir.length === 0;
+    try {
+      for (const t of bdJson<Ticket[]>(repo, ["dep", "list", id, ...dir]) ?? []) {
+        const type = String((t as any).dependency_type ?? "").toLowerCase();
+        if (type && type !== "discovered-from") continue;
+        let full: Ticket = t;
+        if (!t.created_at || !t.status) {
+          try { full = get(repo, t.id); } catch { continue; }
+        }
+        const at = full.created_at ? new Date(full.created_at).getTime() : 0;
+        if (full.id === id) continue;
+        if (strict ? at > born : at >= born) seen.set(full.id, tag(repo, full));
+      }
+    } catch {
+      // A ticket with no links makes bd exit non-zero on some versions; that
+      // is not a reason to block an acceptance.
+    }
+  }
+  return [...seen.values()];
 }
 
 /** Of those, the ones still open. Accepting over these is the thing to refuse. */

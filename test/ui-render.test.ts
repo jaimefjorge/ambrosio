@@ -342,3 +342,24 @@ describe("tabs", () => {
     expect(m.nodes["tab-standing"].hidden).toBe(true);
   });
 });
+
+describe("landable on the accept row", () => {
+  const acc = (landable: any) => ({ ...empty, accept: [{ key: "A1", id: "gmc-axx", repo: "gatemd-core", title: "spinner tests", status: "in_review", landable }] });
+
+  test("says landable, with the PR, when it is", () => {
+    const out = renderPage(acc({ ok: true, pr: { number: 161, url: "https://github.com/x/y/pull/161" }, reasons: [] })).questions;
+    expect(out).toContain("PR #161");
+    expect(out).toContain("landable");
+    expect(out).not.toContain("not landable");
+  });
+
+  test("names every reason when it is not, and the accept button says so", () => {
+    const out = renderPage(acc({ ok: false, pr: { number: 161, url: "" }, reasons: ["unit pending", "open defects: gmc-sz7"] })).questions;
+    expect(out).toContain("not landable: unit pending; open defects: gmc-sz7");
+    expect(out).toContain("accept anyway");
+  });
+
+  test("without an assessment the row still renders", () => {
+    expect(renderPage(acc(undefined)).questions).toContain("waiting for you to accept");
+  });
+});

@@ -84,3 +84,19 @@ test("unknown ticket raises a TrackerError naming the command", () => {
     expect(e).toBeInstanceOf(tracker.TrackerError);
   }
 }, BD_TIMEOUT);
+
+// --- Which way a defect points ---------------------------------------------------
+// 2026-09-07: gmc-sz7 was filed `--deps discovered-from:gmc-axx`, sat open,
+// and rule 4 did not see it — openDefects read `--direction up`, and beads
+// reports discovered-from children downward from the parent. The same
+// downward list also carries the parent's own parent, so direction alone
+// cannot tell them apart; creation order can.
+
+test("a defect filed discovered-from its parent is that parent's open defect, and not the reverse", () => {
+  const parent = tracker.create(repo, { title: "the work", description: "x" }).id;
+  const child = tracker.create(repo, { title: "a nit found on the way", description: "y", deps: [`discovered-from:${parent}`] }).id;
+  expect(tracker.openDefects(repo, parent).map((t) => t.id)).toEqual([child]);
+  expect(tracker.openDefects(repo, child)).toEqual([]);
+  spawnSync("bd", ["-C", dir, "close", child, "-r", "fixed"], { encoding: "utf8" });
+  expect(tracker.openDefects(repo, parent)).toEqual([]);
+}, BD_TIMEOUT);
