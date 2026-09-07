@@ -137,6 +137,38 @@ export function applyAnswer(
 }
 
 /**
+ * Hand over answers that were recorded while their worker was mid-turn.
+ *
+ * `deliverAnswer` refuses to resume a running session, because resuming one
+ * forks it into a second worker on the same ticket. That leaves the answer
+ * recorded but undelivered, and something has to come back for it — otherwise
+ * answering from the phone or the fleet view silently does nothing whenever the
+ * worker happened to be busy at that moment.
+ */
+export function deliverHeldAnswers(
+  cfg: AmbrosioConfig,
+  deliver: typeof deliverAnswer = deliverAnswer,
+): { qid: string; ticket: string; repo: string }[] {
+  const delivered: { qid: string; ticket: string; repo: string }[] = [];
+
+  for (const item of queue.listAnswered(cfg.homeDir)) {
+    if (!item.answer) continue;
+    try {
+      const how = deliver(cfg, { ticket: item.ticket, repo: item.repo, sessionId: item.sessionId, text: item.answer });
+      if (how !== "resumed") continue;
+      queue.markDelivered(cfg.homeDir, item.qid);
+      journal.append(cfg.homeDir, `held answer for ${item.ticket} delivered (${item.qid})`);
+      delivered.push({ qid: item.qid, ticket: item.ticket, repo: item.repo });
+    } catch (e) {
+      // A worker that died takes its answer nowhere; the rest still go.
+      journal.append(cfg.homeDir, `held answer for ${item.ticket} could not be delivered: ${(e as Error).message}`);
+    }
+  }
+
+  return delivered;
+}
+
+/**
  * Send an answer back to the worker that asked.
  *
  * `claude --bg --resume <id>` continues the session under the same id, but it

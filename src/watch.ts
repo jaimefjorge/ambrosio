@@ -25,6 +25,8 @@ export type WatchDeps = {
   transition: (cfg: AmbrosioConfig, repo: string, ticket: string, status: string, note: string) => void;
   stopWorker: (ticket: string) => void;
   wake: (cfg: AmbrosioConfig) => void;
+  /** Retry answers recorded while their worker was mid-turn. */
+  deliverHeld?: (cfg: AmbrosioConfig) => { qid: string; ticket: string; repo: string }[];
 };
 
 /**
@@ -114,7 +116,7 @@ import * as journal from "./journal.ts";
 import * as tracker from "./tracker.ts";
 import { collectBoard } from "./board.ts";
 import { assignKeys, renderDigest } from "./digest.ts";
-import { applyAnswer } from "./dispatch.ts";
+import { applyAnswer, deliverHeldAnswers } from "./dispatch.ts";
 
 /** A woken manager costs a session, so never storm it. */
 const WAKE_COOLDOWN_MS = 60_000;
@@ -175,6 +177,19 @@ export function realDeps(): WatchDeps {
   };
 }
 
+/**
+ * One pass of the watcher: hand over anything still held, then act on whatever
+ * Jaime has sent. Held answers are retried every pass, not only when a message
+ * arrives, because what unblocks them is the worker parking — not Jaime typing.
+ */
+export function onePass(
+  cfg: AmbrosioConfig,
+  deps: WatchDeps,
+): { handled: Handled[]; delivered: { qid: string; ticket: string; repo: string }[] } {
+  const delivered = (deps.deliverHeld ?? deliverHeldAnswers)(cfg);
+  return { handled: drain(cfg, deps), delivered };
+}
+
 export type WatchOptions = { intervalMs?: number; deps?: WatchDeps; onEvent?: (h: Handled[]) => void };
 
 /**
@@ -187,7 +202,10 @@ export async function runWatch(cfg: AmbrosioConfig, opts: WatchOptions = {}): Pr
   const deps = opts.deps ?? realDeps();
   for (;;) {
     try {
-      const handled = drain(cfg, deps);
+      const { handled, delivered } = onePass(cfg, deps);
+      for (const d of delivered) {
+        opts.onEvent?.([{ text: `held answer delivered to ${d.ticket}`, at: new Date(), actions: [] }]);
+      }
       if (handled.length > 0) opts.onEvent?.(handled);
     } catch (e) {
       // Never let one bad pass kill the watcher: it is meant to run all day.

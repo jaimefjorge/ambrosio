@@ -15,7 +15,10 @@ beforeAll(() => {
   spawnSync("git", ["commit", "-q", "--allow-empty", "-m", "init"], { cwd: dir });
   repo = { name: "t", path: dir, prefix: "tt" };
   tracker.initRepo(repo);
-});
+  // `bd init` starts an embedded Dolt instance and takes ~4s on a quiet
+  // machine, which is already at Bun's 5s default. With workers running it
+  // goes over, and the whole suite fails in setup for no real reason.
+}, 60_000);
 
 afterAll(() => {
   try { rmSync(dir, { recursive: true, force: true }); } catch {}

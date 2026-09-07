@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { drain, type WatchDeps } from "../src/watch.ts";
+import { drain, onePass, type WatchDeps } from "../src/watch.ts";
 import type { AmbrosioConfig } from "../src/config.ts";
 import type { InboundMessage } from "../src/inbox.ts";
 
@@ -116,5 +116,26 @@ describe("drain", () => {
     // rather than disappearing.
     expect(log).toEqual(["digest", "wake"]);
     expect(handled[0].actions[0]).toMatchObject({ kind: "failed" });
+  });
+});
+
+describe("onePass", () => {
+  test("retries held answers even when Jaime has sent nothing", () => {
+    // What unblocks a held answer is the worker parking, not a new message.
+    const { deps } = spyDeps([]);
+    let tried = 0;
+    const r = onePass(cfg, { ...deps, deliverHeld: () => { tried++; return [{ qid: "q-1", ticket: "T-1", repo: "r" }]; } });
+
+    expect(tried).toBe(1);
+    expect(r.delivered.map((d) => d.qid)).toEqual(["q-1"]);
+    expect(r.handled).toEqual([]);
+  });
+
+  test("hands over first, then acts on new replies", () => {
+    const order: string[] = [];
+    const { deps } = spyDeps([msg("status")], { sendDigest: () => order.push("digest") });
+    onePass(cfg, { ...deps, deliverHeld: () => { order.push("held"); return []; } });
+
+    expect(order).toEqual(["held", "digest"]);
   });
 });

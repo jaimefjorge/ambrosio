@@ -312,6 +312,7 @@ switch (cmd) {
         accept: Object.fromEntries(Object.entries(keys.accept).map(([k, v]) => [k, { id: v.id, repo: v.repo, title: v.title }])),
       },
       urgent: queue.listUrgentOpen(c.homeDir).map((q) => q.qid),
+      heldAnswers: queue.listAnswered(c.homeDir).map((q) => ({ qid: q.qid, ticket: q.ticket, repo: q.repo, answeredAt: q.answeredAt })),
       anomalies: board.anomalies,
       dispatchable: dispatchable.map((t) => ({ repo: t.repo, id: t.id, title: t.title })),
       digest: renderDigest(board),

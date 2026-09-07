@@ -110,7 +110,7 @@ test("deliverAnswer resumes with the session UUID, never the short job id", asyn
 // --- applyAnswer: the one path the CLI, the watcher and the UI all share ---
 
 import { describe } from "bun:test";
-import { applyAnswer } from "../src/dispatch.ts";
+import { applyAnswer, deliverHeldAnswers } from "../src/dispatch.ts";
 import * as queue from "../src/queue.ts";
 
 /** The hook writes queue items as files; do the same rather than mock the store. */
@@ -148,5 +148,54 @@ describe("applyAnswer", () => {
   test("refuses a question that does not exist instead of writing a stray file", () => {
     const c = cfg();
     expect(() => applyAnswer(c, "q-nope", "x", () => "resumed")).toThrow(DispatchError);
+  });
+});
+
+describe("deliverHeldAnswers", () => {
+  test("hands over an answer once the worker has parked", () => {
+    const c = cfg();
+    withQuestion(c.homeDir, "q-1");
+    applyAnswer(c, "q-1", "three retries", () => "deferred");
+    expect(queue.get(c.homeDir, "q-1")?.status).toBe("answered");
+
+    // The worker has since stopped, so this pass gets through.
+    const done = deliverHeldAnswers(c, () => "resumed");
+
+    expect(done.map((d) => d.qid)).toEqual(["q-1"]);
+    expect(queue.get(c.homeDir, "q-1")).toMatchObject({ status: "delivered", answer: "three retries" });
+  });
+
+  test("leaves the answer queued while the worker is still mid-turn", () => {
+    const c = cfg();
+    withQuestion(c.homeDir, "q-1");
+    applyAnswer(c, "q-1", "three retries", () => "deferred");
+
+    expect(deliverHeldAnswers(c, () => "deferred")).toEqual([]);
+    expect(queue.get(c.homeDir, "q-1")?.status).toBe("answered");
+  });
+
+  test("ignores questions that are unanswered or already delivered", () => {
+    const c = cfg();
+    withQuestion(c.homeDir, "q-open");
+    withQuestion(c.homeDir, "q-done");
+    applyAnswer(c, "q-done", "x", () => "resumed");
+
+    expect(deliverHeldAnswers(c, () => "resumed")).toEqual([]);
+  });
+
+  test("one failed hand-over does not block the others", () => {
+    const c = cfg();
+    withQuestion(c.homeDir, "q-1");
+    withQuestion(c.homeDir, "q-2");
+    applyAnswer(c, "q-1", "a", () => "deferred");
+    applyAnswer(c, "q-2", "b", () => "deferred");
+
+    const done = deliverHeldAnswers(c, (_c, o) => {
+      if (o.text === "a") throw new Error("session vanished");
+      return "resumed";
+    });
+
+    expect(done.map((d) => d.qid)).toEqual(["q-2"]);
+    expect(queue.get(c.homeDir, "q-1")?.status).toBe("answered");
   });
 });
