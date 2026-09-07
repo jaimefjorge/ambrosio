@@ -13,6 +13,7 @@ import * as journal from "../src/journal.ts";
 import * as imessage from "../src/imessage.ts";
 import * as inbox from "../src/inbox.ts";
 import { runWatch } from "../src/watch.ts";
+import { serve } from "../src/ui.ts";
 import { parseReplies } from "../src/replies.ts";
 import { collectBoard, canDispatch, wipUsed } from "../src/board.ts";
 import { renderDigest, renderUrgent, hasDecisions, assignKeys } from "../src/digest.ts";
@@ -53,6 +54,7 @@ const HELP = `ambrosio — manager for Claude Code workers
   send <text...>               send yourself an iMessage
   inbox [--json]               what you have texted Ambrosio since the last read
   watch [--interval <sec>]     route your replies the moment they arrive
+  ui [--port <n>]              live fleet view on localhost
   tick [--send]                one manager cycle: route, detect, dispatch, digest
   journal                      today's decisions
 `;
@@ -277,6 +279,14 @@ switch (cmd) {
         }
       },
     });
+    break;
+  }
+
+  case "ui": {
+    const c = cfg();
+    const port = Number(argv.find((a) => a.startsWith("--port="))?.split("=")[1] ?? 4317);
+    const { port: bound } = serve(c, port);
+    console.log(`ambrosio: fleet view on http://127.0.0.1:${bound} — local only. Ctrl-C to stop.`);
     break;
   }
 

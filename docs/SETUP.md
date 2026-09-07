@@ -37,7 +37,15 @@ cd ~/Workspace/ambrosio && claude --channels plugin:imessage@claude-plugins-offi
 cd ~/Workspace/ambrosio && bin/ambrosio watch
 ```
 
-Leave it running. Accept the Messages automation prompt the first time it replies. Everything after this happens in Messages.
+**Tab 4 — the fleet view**, if you want to watch it rather than be told about it:
+
+```sh
+cd ~/Workspace/ambrosio && bin/ambrosio ui
+```
+
+It binds to `127.0.0.1:4317` and nothing leaves the machine: the page is a local file and its only request is back to that process. Blocked workers sort to the top, since those are the ones costing you time.
+
+Leave the watcher running. Accept the Messages automation prompt the first time it replies. Everything after this happens in Messages.
 
 At the end of the day, in tab 1: `/ambrosio-wrap-up`.
 
