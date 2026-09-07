@@ -70,6 +70,33 @@
   #said { margin-left: auto; font-size: 12px; color: var(--green); }
   #said.bad { color: var(--red); }
 
+  /* Step one: what is today for. */
+  #focus { margin-top: 8px; }
+  .ask { font-size: 15px; margin: 0 0 14px; color: var(--ink); }
+  .projects { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+  .proj {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+    padding: 13px 15px; cursor: pointer; transition: border-color .12s ease, background .12s ease;
+  }
+  .proj:hover { border-color: var(--dim); }
+  .proj.on { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 11%, transparent); }
+  .proj .nm { font-weight: 600; }
+  .proj .st { color: var(--dim); font-size: 12px; margin-top: 5px; }
+  textarea {
+    width: 100%; margin-top: 16px; min-height: 78px; resize: vertical; font: inherit; font-size: 14px;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; padding: 12px 14px;
+  }
+  textarea:focus { outline: none; border-color: var(--gold); }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 7px; }
+
+  #mission-line {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--gold);
+    border-radius: 6px; padding: 11px 14px; margin-top: 18px; display: flex; gap: 12px; align-items: baseline;
+  }
+  #mission-line .what { flex: 1; }
+  #mission-line .edit { color: var(--dim); font-size: 12px; cursor: pointer; text-decoration: underline; }
+
   .sources { margin-top: 34px; font-size: 11px; color: var(--dim); display: flex; flex-wrap: wrap; gap: 14px; }
   .sources i { font-style: normal; }
   .sources .off { color: var(--amber); }
@@ -85,11 +112,20 @@
   </div>
 </div></div>
 
-<main class="wrap" id="brief"></main>
+<main class="wrap">
+  <section id="focus" hidden>
+    <p class="ask">What shall we work on today, sir?</p>
+    <div class="projects" id="projects"></div>
+    <textarea id="mission" placeholder="And what is today for? (optional — e.g. &quot;ship the release gate so 0.31.4 can be announced&quot;)"></textarea>
+    <div class="hint" id="focus-hint">Pick the projects you want in front of you. Everything else stays out of the way.</div>
+  </section>
+  <div id="brief"></div>
+</main>
 
 <div id="bar"><div class="wrap">
-  <button id="begin" disabled>Begin the day</button>
-  <button class="ghost" id="clear">Clear</button>
+  <button id="set" hidden>Set the day</button>
+  <button id="begin" disabled hidden>Begin the day</button>
+  <button class="ghost" id="clear" hidden>Clear</button>
   <span id="count">nothing chosen</span>
   <a href="/" style="margin-left:auto;font-size:12px;color:var(--dim)">the fleet →</a>
   <span id="said"></span>
@@ -105,6 +141,70 @@ let brief = null;
 const butler = createButler($("brief-canvas"), {
   screen: $("brief-canvas"),
   onMood: () => {},
+});
+
+const picked = new Set();     // projects chosen for today
+let step = "focus";           // "focus" until the day is set, then "brief"
+
+function renderProjects(projects) {
+  $("projects").innerHTML = projects.map((p) => {
+    const bits = [];
+    if (p.waiting) bits.push(`${p.waiting} waiting on you`);
+    if (p.running) bits.push(`${p.running} running`);
+    bits.push(`${p.open} open`);
+    return `<div class="proj ${picked.has(p.name) ? "on" : ""}" data-name="${esc(p.name)}">
+      <div class="nm">${esc(p.name)}</div><div class="st">${esc(bits.join(" · "))}</div></div>`;
+  }).join("");
+  updateBar();
+}
+
+function showFocus() {
+  step = "focus";
+  $("focus").hidden = false;
+  $("brief").innerHTML = "";
+  $("set").hidden = false;
+  $("begin").hidden = true;
+  $("clear").hidden = true;
+  butler.setMood("idle", "");
+  updateBar();
+}
+
+$("projects").addEventListener("click", (e) => {
+  const card = e.target.closest(".proj");
+  if (!card) return;
+  const n = card.dataset.name;
+  picked.has(n) ? picked.delete(n) : picked.add(n);
+  card.classList.toggle("on");
+  updateBar();
+});
+
+$("set").addEventListener("click", async () => {
+  const mission = $("mission").value.trim();
+  if (picked.size === 0 && !mission) {
+    $("focus-hint").textContent = "Pick at least one project, or say what today is for.";
+    return;
+  }
+  $("set").disabled = true;
+  $("said").className = "";
+  $("said").textContent = "…";
+  try {
+    const r = await fetch("/api/today", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-ambrosio": "1" },
+      body: JSON.stringify({ repos: [...picked], mission }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || "failed");
+    $("said").textContent = "Very good, sir.";
+    $("focus").hidden = true;
+    step = "brief";
+    load();
+  } catch (e) {
+    $("said").className = "bad";
+    $("said").textContent = "! " + e.message;
+  } finally {
+    $("set").disabled = false;
+  }
 });
 
 function tag(text, cls = "") { return `<span class="tag ${cls}">${esc(text)}</span>`; }
@@ -123,6 +223,14 @@ function render(b) {
     : `All ${c.limit} slots are busy. Nothing new until one finishes.`;
 
   const parts = [];
+
+  if (b.mission || (b.repos && b.repos.length)) {
+    parts.push(`<div id="mission-line">
+      <span class="what">${b.mission ? esc(b.mission) : "No mission set for today."}
+        ${b.repos && b.repos.length ? `<div class="meta">${esc(b.repos.join(" · "))}</div>` : ""}</span>
+      <span class="edit" id="edit-focus">change</span>
+    </div>`);
+  }
 
   parts.push(section("Waiting on you", b.waiting.length, b.waiting.map((w) => `
     <div class="row">
@@ -176,11 +284,22 @@ function render(b) {
     `<i class="${s.ok ? "" : "off"}">${s.ok ? "✓" : "!"} ${esc(s.name)}${s.ok ? "" : " — " + esc(s.detail)}</i>`).join("")}</div>`);
 
   $("brief").innerHTML = parts.join("");
+  const edit = document.getElementById("edit-focus");
+  if (edit) edit.addEventListener("click", showFocus);
+  $("begin").hidden = false;
+  $("clear").hidden = false;
+  $("set").hidden = true;
   butler.setMood(b.waiting.length ? "attention" : "idle", "");
   updateBar();
 }
 
 function updateBar() {
+  if (step === "focus") {
+    const m = $("mission").value.trim();
+    $("count").textContent = picked.size === 0 && !m ? "nothing chosen yet"
+      : `${picked.size} project${picked.size === 1 ? "" : "s"}${m ? " and a mission" : ""}`;
+    return;
+  }
   const free = brief ? brief.capacity.free : 0;
   const n = chosen.size;
   $("count").textContent = n === 0 ? "nothing chosen"
@@ -228,8 +347,30 @@ $("begin").addEventListener("click", async () => {
   }
 });
 
+async function start() {
+  try {
+    const r = await fetch("/api/projects");
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    if (d.focus) {
+      (d.focus.repos ?? []).forEach((n) => picked.add(n));
+      $("mission").value = d.focus.mission ?? "";
+      step = "brief";
+      $("focus").hidden = true;
+      renderProjects(d.projects);
+      load();
+      return;
+    }
+    renderProjects(d.projects);
+    showFocus();
+  } catch (e) {
+    $("brief").innerHTML = `<div class="panel"><div class="quiet">Could not read the projects: ${esc(e.message)}</div></div>`;
+  }
+}
+
 async function load() {
   try {
+    $("brief").innerHTML = '<div class="panel"><div class="quiet">Gathering the morning, sir…</div></div>';
     const r = await fetch("/api/morning");
     const d = await r.json();
     if (d.error) throw new Error(d.error);
@@ -238,7 +379,8 @@ async function load() {
     $("brief").innerHTML = `<div class="panel"><div class="quiet">Could not read the brief: ${esc(e.message)}</div></div>`;
   }
 }
-load();
+$("mission").addEventListener("input", updateBar);
+start();
 </script>
 </body>
 </html>

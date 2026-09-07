@@ -123,3 +123,34 @@ describe("buildBrief", () => {
     expect(b.carryover[0].text).toContain("chase the verdict");
   });
 });
+
+describe("scoping the brief to the day's projects", () => {
+  const wide = () => deps({
+    board: () => board({
+      ready: [t({ id: "gmc-1", repo: "gatemd-core" }), t({ id: "gmu-1", repo: "gatemd-ui" })],
+      all: [t({ id: "gmc-2", repo: "gatemd-core", status: "in_progress" }), t({ id: "gmu-2", repo: "gatemd-ui", status: "in_progress" })],
+    }),
+    prs: () => [
+      { repo: "gatemd-core", number: 1, title: "a", url: "", isDraft: false, checks: "passing", updatedAt: "", flag: "waiting on review", rank: 3 },
+      { repo: "gatemd-ui", number: 2, title: "b", url: "", isDraft: false, checks: "passing", updatedAt: "", flag: "waiting on review", rank: 3 },
+    ] as any,
+  });
+
+  test("shows only the projects chosen for today", () => {
+    const b = buildBrief(cfg, wide(), { repos: ["gatemd-core"] });
+    expect(b.ready.map((x) => x.id)).toEqual(["gmc-1"]);
+    expect(b.inFlight.map((x) => x.id)).toEqual(["gmc-2"]);
+    expect(b.prs.map((p) => p.repo)).toEqual(["gatemd-core"]);
+  });
+
+  test("no chosen projects means the whole world, not an empty page", () => {
+    const b = buildBrief(cfg, wide(), { repos: [] });
+    expect(b.ready).toHaveLength(2);
+    expect(b.prs).toHaveLength(2);
+  });
+
+  test("carries the mission so the brief knows what today is for", () => {
+    const b = buildBrief(cfg, wide(), { repos: ["gatemd-core"], mission: "ship the gate" });
+    expect(b.mission).toBe("ship the gate");
+  });
+});

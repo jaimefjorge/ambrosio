@@ -15,6 +15,7 @@ import * as inbox from "../src/inbox.ts";
 import { runWatch } from "../src/watch.ts";
 import { serve } from "../src/ui.ts";
 import { buildBrief, realMorningDeps } from "../src/morning.ts";
+import { readFocus, setFocus } from "../src/today.ts";
 import { parseReplies } from "../src/replies.ts";
 import { collectBoard, canDispatch, wipUsed } from "../src/board.ts";
 import { renderDigest, renderUrgent, hasDecisions, assignKeys } from "../src/digest.ts";
@@ -77,7 +78,8 @@ const HELP = `ambrosio — manager for Claude Code workers
   watch [--interval <sec>]     route your replies the moment they arrive
   ui [--port <n>]              live fleet view on localhost
   tick [--send]                one manager cycle: route, detect, dispatch, digest
-  morning [--json]             the morning brief: carryover, PRs, Linear, what is ready
+  today <repo…> [-- <mission>] set what today is for; no args prints it
+  morning [--json]             the morning brief, scoped to today's projects
   journal                      today's decisions
 `;
 
@@ -346,11 +348,34 @@ switch (cmd) {
     break;
   }
 
+  case "today": {
+    const c = cfg();
+    const sep = argv.indexOf("--");
+    const repos = (sep === -1 ? args : argv.slice(1, sep).filter((a) => !a.startsWith("--")));
+    const mission = sep === -1 ? "" : argv.slice(sep + 1).join(" ");
+    if (repos.length === 0 && !mission) {
+      const f = readFocus(c);
+      out(f ? `${f.repos.join(", ") || "(no project)"}${f.mission ? ` — ${f.mission}` : ""}` : "(the day is not set yet)");
+      break;
+    }
+    try {
+      const f = setFocus(c, { repos, mission });
+      journal.append(c.homeDir, `Jaime set the day: ${f.repos.join(", ") || "no project chosen"}${f.mission ? ` — "${f.mission}"` : ""}`);
+      out(`today: ${f.repos.join(", ") || "(no project)"}${f.mission ? ` — ${f.mission}` : ""}`);
+    } catch (e) {
+      die((e as Error).message);
+    }
+    break;
+  }
+
   case "morning": {
     const c = cfg();
-    const brief = buildBrief(c, realMorningDeps());
+    const focus = readFocus(c);
+    const brief = buildBrief(c, realMorningDeps(), { repos: focus?.repos ?? [], mission: focus?.mission ?? "" });
     if (asJson) { out(brief); break; }
     const lines: string[] = [`${brief.greeting}  —  ${new Date(brief.date).toDateString()}`, ""];
+    if (!focus) lines.push("The day is not set yet. Choose projects with: bin/ambrosio today <repo…> -- <mission>", "");
+    else lines.push(`Today: ${focus.repos.join(", ") || "(no project)"}${focus.mission ? ` — ${focus.mission}` : ""}`, "");
     lines.push(`Capacity: ${brief.capacity.free} of ${brief.capacity.limit} slots free`);
     if (brief.waiting.length) lines.push("", "WAITING ON YOU", ...brief.waiting.map((w) => `  ${w.key} [${w.repo} ${w.id}] ${w.title}`));
     if (brief.carryover.length) lines.push("", "CARRIED OVER", ...brief.carryover.map((c2) => `  ${c2.at} ${c2.kind}: ${c2.text.slice(0, 90)}`));

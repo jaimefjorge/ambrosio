@@ -9,6 +9,8 @@ import { readTranscript, type Event } from "./transcript.ts";
 import { applyAnswer } from "./dispatch.ts";
 import { applyDecision, type Decision } from "./decide.ts";
 import { buildBrief, realMorningDeps } from "./morning.ts";
+import { readFocus, setFocus } from "./today.ts";
+import * as journal from "./journal.ts";
 import { dispatchTicket } from "./dispatch.ts";
 import { canDispatch, wipUsed } from "./board.ts";
 
@@ -18,7 +20,7 @@ import { canDispatch, wipUsed } from "./board.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "4";
+export const UI_VERSION = "5";
 
 export type UiWorker = {
   id?: string;
@@ -185,9 +187,43 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
         }
       }
 
+      // The projects Jaime can choose between, with enough on each to choose well.
+      if (url.pathname === "/api/projects") {
+        try {
+          const board = collectBoard(cfg);
+          const count = (repo: string, pred: (t: any) => boolean) => board.all.filter((t) => t.repo === repo && pred(t)).length;
+          return Response.json({
+            projects: cfg.repos.map((r) => ({
+              name: r.name,
+              open: count(r.name, (t) => t.status === "open"),
+              running: count(r.name, (t) => t.status === "in_progress" || t.status === "planning"),
+              waiting: count(r.name, (t) => t.status === "in_review" || t.status === "plan_review" || t.status === "needs_input"),
+            })),
+            focus: readFocus(cfg),
+          });
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 500 });
+        }
+      }
+
+      if (url.pathname === "/api/today" && req.method === "POST") {
+        try {
+          const { repos, mission } = (await req.json()) as { repos?: string[]; mission?: string };
+          const focus = setFocus(cfg, { repos: repos ?? [], mission: mission ?? "" });
+          journal.append(cfg.homeDir,
+            `Jaime set the day: ${focus.repos.length ? focus.repos.join(", ") : "no project chosen"}` +
+            `${focus.mission ? ` — "${focus.mission}"` : ""}`);
+          return Response.json({ ok: true, focus });
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 400 });
+        }
+      }
+
       if (url.pathname === "/api/morning") {
         try {
-          return Response.json({ ...buildBrief(cfg, realMorningDeps()), version: UI_VERSION });
+          const focus = readFocus(cfg);
+          const brief = buildBrief(cfg, realMorningDeps(), { repos: focus?.repos ?? [], mission: focus?.mission ?? "" });
+          return Response.json({ ...brief, focusSet: focus !== null, version: UI_VERSION });
         } catch (e) {
           return Response.json({ error: (e as Error).message }, { status: 500 });
         }

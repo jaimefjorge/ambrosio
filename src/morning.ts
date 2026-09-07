@@ -30,9 +30,13 @@ export type Carryover = { at: string; kind: string; text: string };
 
 export type BriefTicket = { id: string; repo: string; title: string; status: string; priority: number };
 
+export type Scope = { repos?: string[]; mission?: string };
+
 export type MorningBrief = {
   date: string;
   greeting: string;
+  mission: string;
+  repos: string[];
   capacity: { used: number; limit: number; free: number };
   carryover: Carryover[];
   waiting: { key: string; kind: "question" | "plan" | "accept"; id: string; repo: string; title: string }[];
@@ -97,8 +101,12 @@ function safely<T>(name: string, fallback: T, fn: () => T, sources: SourceState[
  * back from yesterday, what is waiting on Jaime, what is ready to start, what
  * is already running, and what is open elsewhere.
  */
-export function buildBrief(cfg: AmbrosioConfig, deps: MorningDeps): MorningBrief {
+export function buildBrief(cfg: AmbrosioConfig, deps: MorningDeps, scope: Scope = {}): MorningBrief {
   const now = deps.now();
+  // An empty choice means the whole world; scoping to nothing would hide the
+  // very work the morning exists to show.
+  const only = scope.repos && scope.repos.length > 0 ? new Set(scope.repos) : null;
+  const inScope = (repo: string | undefined) => !only || only.has(repo ?? "");
   const sources: SourceState[] = [];
 
   const board = safely("Board", null as Board | null, () => deps.board(cfg), sources);
@@ -130,14 +138,16 @@ export function buildBrief(cfg: AmbrosioConfig, deps: MorningDeps): MorningBrief
   return {
     date: now.toISOString(),
     greeting: greeting(now),
+    mission: scope.mission ?? "",
+    repos: scope.repos ?? [],
     capacity: { used: busy, limit: cfg.wipLimit, free: Math.max(0, cfg.wipLimit - busy) },
     carryover: carryoverFrom(text),
-    waiting,
-    ready: (board?.ready ?? []).map(asTicket),
-    inFlight: (board?.all ?? []).filter((t) => t.status === "in_progress" || t.status === "planning").map(asTicket),
-    prs: [...prs].sort((a, b) => a.rank - b.rank),
+    waiting: waiting.filter((w) => inScope(w.repo)),
+    ready: (board?.ready ?? []).filter((t) => inScope(t.repo)).map(asTicket),
+    inFlight: (board?.all ?? []).filter((t) => (t.status === "in_progress" || t.status === "planning") && inScope(t.repo)).map(asTicket),
+    prs: prs.filter((p) => inScope(p.repo)).sort((a, b) => a.rank - b.rank),
     linear: linear.issues,
-    verity,
+    verity: verity.filter((v) => inScope(v.repo)),
     sources,
   };
 }
