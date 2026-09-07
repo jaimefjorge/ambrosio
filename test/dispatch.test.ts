@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { renderWorkerPrompt, workDirFor, DispatchError } from "../src/dispatch.ts";
+import { renderWorkerPrompt, workDirFor, DispatchError, dispatchTicket } from "../src/dispatch.ts";
 import { rootDir, type AmbrosioConfig } from "../src/config.ts";
 import type { Ticket } from "../src/tracker.ts";
 
@@ -228,4 +228,18 @@ describe("lessons reaching the worker", () => {
   test("with no reviews yet it says so, rather than leaving an empty heading", () => {
     expect(renderWorkerPrompt(cfg(), repo, ticket())).toContain("(nothing recorded yet)");
   });
+});
+
+test("nothing is dispatched while the fleet is paused — not even by hand", async () => {
+  const { pause, resume } = await import("../src/pause.ts");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const home = mkdtempSync(join(tmpdir(), "amb-dp-"));
+  const c = { ...cfg(), homeDir: home };
+  pause(home, "dry run");
+  let started = false;
+  expect(() => dispatchTicket(c, c.repos[0].name, "x-1", { dispatch: (() => { started = true; return { id: "j", name: "x-1" }; }) as any, countBusy: () => 0 })).toThrow(/paused/);
+  expect(started).toBe(false);
+  resume(home);
 });

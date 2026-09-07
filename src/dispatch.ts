@@ -6,6 +6,7 @@ import * as tracker from "./tracker.ts";
 import type { Ticket } from "./tracker.ts";
 import * as agents from "./agents.ts";
 import * as journal from "./journal.ts";
+import { readPause } from "./pause.ts";
 import * as queue from "./queue.ts";
 import { recentLessons } from "./review.ts";
 
@@ -77,6 +78,11 @@ export function dispatchTicket(
   deps: DispatchDeps = realDeps,
 ): { id: string; name: string; promptPath: string } {
   const repo = repoByName(cfg, repoName);
+
+  // A pause is absolute (charter rule 10): it binds the manager's own hand as
+  // much as the watch loop's, or "pause" means "pause until someone forgets".
+  const paused = readPause(cfg.homeDir);
+  if (paused) throw new DispatchError(`the fleet is paused (${paused.reason}); run 'ambrosio resume' first.`);
 
   const busy = deps.countBusy();
   if (busy >= cfg.wipLimit) {

@@ -63,9 +63,11 @@ export function say(cfg: AmbrosioConfig, text: string, deps: DialogDeps, now = n
   let kind: EntryKind = "note";
   let ok = true;
 
-  for (const r of replies) {
+  const lines = clean.split("\n").map((l) => l.trim()).filter(Boolean);
+  replies.forEach((r, i) => {
     if (r.kind !== "unparsed") {
-      const me: Entry = { id: newId(), at, from: "jaime", text: lineOf(r, clean), kind: "action" };
+      // Jaime's own words, not the parsed shape: the thread is his record.
+      const me: Entry = { id: newId(), at, from: "jaime", text: lines[i] ?? clean, kind: "action" };
       said.push(me);
       let a: Action;
       try {
@@ -79,7 +81,7 @@ export function say(cfg: AmbrosioConfig, text: string, deps: DialogDeps, now = n
       answers.push(d.text);
       kind = "action";
       journal.append(cfg.homeDir, `dialog: ${me.text} -> ${d.text}`, now);
-      continue;
+      return;
     }
     if (looksLikeAQuestion(r.text)) {
       said.push({ id: newId(), at, from: "jaime", text: r.text, kind: "question" });
@@ -87,14 +89,14 @@ export function say(cfg: AmbrosioConfig, text: string, deps: DialogDeps, now = n
       ok = ok && a.ok;
       answers.push(a.answer);
       if (kind !== "action") kind = "question";
-      continue;
+      return;
     }
     const me: Entry = { id: newId(), at, from: "jaime", text: r.text, kind: "instruction", standing: true };
     said.push(me);
     answers.push(`Noted, and standing until you retire it: "${r.text}"`);
     if (kind === "note") kind = "instruction";
     journal.append(cfg.homeDir, `standing instruction: ${r.text}`, now);
-  }
+  });
 
   const reply: Entry = {
     id: newId(), at, from: "ambrosio", kind, ok,
@@ -105,11 +107,4 @@ export function say(cfg: AmbrosioConfig, text: string, deps: DialogDeps, now = n
   const entries = [...all, ...said, reply];
   writeDialog(cfg.homeDir, entries);
   return { entries, reply };
-}
-
-/** The original line a parsed reply came from, so the thread shows Jaime's words. */
-function lineOf(r: Reply, text: string): string {
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const idx = parseReplies(text).indexOf(r);
-  return lines[idx] ?? JSON.stringify(r);
 }

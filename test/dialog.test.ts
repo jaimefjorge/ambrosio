@@ -24,10 +24,11 @@ function deps(over: Partial<DialogDeps> = {}) {
 }
 
 describe("what a message becomes", () => {
-  test("a grammar line is an action, routed like a text from Messages", () => {
+  test("a grammar line is an action, routed like a text from Messages, kept in his own words", () => {
     const c = cfg();
     const { d, log } = deps();
     const r = say(c, "pause: back tomorrow", d);
+    expect(r.entries[0].text).toBe("pause: back tomorrow");
     expect(log).toEqual(["route:pause"]);
     expect(r.reply.kind).toBe("action");
     expect(r.reply.text).toContain("Paused");
