@@ -79,7 +79,11 @@
   .folded summary { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); padding: 6px 0; }
   .folded .grid { margin-top: 8px; opacity: .7; }
   #stats .paused { color: var(--failed); font-weight: 700; letter-spacing: .08em; }
-  #dialog { margin-top: 18px; }
+  #tabs { display: flex; gap: 2px; margin: 14px 0 12px; border-bottom: 1px solid var(--line); }
+  #tabs button { font: inherit; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; padding: 8px 14px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--dim); cursor: pointer; margin-bottom: -1px; }
+  #tabs button.on { color: var(--ink); border-bottom-color: var(--ink); }
+  #tabs .badge { display: inline-block; margin-left: 6px; min-width: 14px; padding: 0 4px; border-radius: 8px; background: var(--ink); color: var(--panel); font-size: 10px; text-align: center; }
+  #dialog { margin-top: 4px; }
   #standing .inst { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
   #standing .inst .when { color: var(--dim); font-size: 11px; }
   #standing .inst button { margin-left: auto; font: inherit; font-size: 11px; background: none; border: 1px solid var(--line); color: var(--dim); cursor: pointer; padding: 2px 8px; }
@@ -219,19 +223,16 @@
 
 <div class="panel" id="answer" hidden></div>
 
-<section id="dialog">
-  <div class="label">STANDING</div>
-  <div id="standing" class="panel"></div>
-  <div class="label">DIALOG</div>
-  <div id="thread" class="panel"></div>
-  <div id="say-wrap">
-    <textarea id="say" rows="2" placeholder="Tell Ambrosio: an instruction that stands until you retire it, a question, or anything from the Messages grammar (pause, resume, A1 accept, gmc-xyz defer, @gmc-xyz …)"></textarea>
-    <button id="say-send">send</button>
-  </div>
-</section>
+
 
 <div id="menu" hidden></div>
 
+<nav id="tabs">
+  <button data-tab="board" class="on">Board</button>
+  <button data-tab="dialog">Dialog<span id="tab-standing" class="badge" hidden></span></button>
+</nav>
+
+<section id="board" class="tab">
 <div id="stale"></div>
 <div id="anomalies"></div>
 
@@ -258,10 +259,22 @@
 
 <h2>Tickets</h2>
 <div class="panel" id="tickets"></div>
+</section>
+
+<section id="dialog" class="tab" hidden>
+  <div class="label">STANDING</div>
+  <div id="standing" class="panel"></div>
+  <div class="label">DIALOG</div>
+  <div id="thread" class="panel"></div>
+  <div id="say-wrap">
+    <textarea id="say" rows="2" placeholder="Tell Ambrosio: an instruction that stands until you retire it, a question, or anything from the Messages grammar (pause, resume, A1 accept, gmc-xyz defer, @gmc-xyz …)"></textarea>
+    <button id="say-send">send</button>
+  </div>
+</section>
 
 <script src="/butler.js"></script>
 <script>
-const UI_VERSION = "10";       // must match UI_VERSION in src/ui.ts
+const UI_VERSION = "11";       // must match UI_VERSION in src/ui.ts
 const answers = {};            // qid -> draft text, kept across re-renders
 const said = {};               // qid -> what happened when we sent it
 let lastQSig = null;           // questions panel is only rebuilt when it changes
@@ -286,6 +299,8 @@ const TAGS = { action: (ok) => ok ? "did" : "could not", question: () => "answer
 
 function renderDialog(d) {
   const inst = d.instructions || [];
+  $("tab-standing").textContent = String(inst.length);
+  $("tab-standing").hidden = inst.length === 0;
   $("standing").innerHTML = inst.length
     ? inst.map((i) => `<div class="inst"><span class="text">${esc(i.text)}</span><span class="when">${esc(ago(i.at))}</span><button data-retire="${esc(i.id)}">retire</button></div>`).join("")
     : '<div class="empty">Nothing standing. Anything you say below that is not a question or a command stands until you retire it.</div>';
@@ -670,6 +685,22 @@ async function askAbout(question, ticket) {
 }
 
 let last = { dialog: [], instructions: [] };
+
+// Two tabs: the board is what is happening; the dialog is Jaime and Ambrosio
+// talking. Which one he left open is remembered per browser, nothing more.
+const TABS = ["board", "dialog"];
+function showTab(name) {
+  if (!TABS.includes(name)) name = "board";
+  for (const t of TABS) $(t).hidden = t !== name;
+  for (const b of document.querySelectorAll("#tabs button")) b.classList.toggle("on", b.dataset.tab === name);
+  try { localStorage.setItem("ambrosio.tab", name); } catch {}
+  return name;
+}
+$("tabs").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tab]");
+  if (b) showTab(b.dataset.tab);
+});
+try { showTab(localStorage.getItem("ambrosio.tab") || "board"); } catch { showTab("board"); }
 $("say-send").addEventListener("click", () => sayToAmbrosio($("say").value));
 $("say").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) sayToAmbrosio($("say").value);

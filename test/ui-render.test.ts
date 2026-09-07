@@ -33,6 +33,7 @@ function mountFleet() {
       querySelectorAll: () => [], documentElement: { dataset: {} }, body: {},
     },
     window: { matchMedia: () => ({ matches: false, addEventListener() {} }), innerWidth: 1400, innerHeight: 900 },
+    localStorage: { store: {} as Record<string, string>, getItem(k: string) { return this.store[k] ?? null; }, setItem(k: string, v: string) { this.store[k] = v; } },
     CSS: { escape: (s: string) => s },
     fetch: (url: string, init: any) => {
       posted.push({ url, body: init?.body ? JSON.parse(init.body) : null });
@@ -42,7 +43,7 @@ function mountFleet() {
     getComputedStyle: () => ({ getPropertyValue: () => "#000" }),
   };
   const api = new Function(...Object.keys(stubs),
-    `${script}\nreturn { render, setMood: butler.setMoodFromBoard, openMenu, askAbout, closeMenu, sayToAmbrosio };`)(...Object.values(stubs));
+    `${script}\nreturn { render, setMood: butler.setMoodFromBoard, openMenu, askAbout, closeMenu, sayToAmbrosio, showTab };`)(...Object.values(stubs));
   return { api, nodes, posted, html: (id: string) => `${nodes[id]?.innerHTML ?? ""}${nodes[id]?.textContent ?? ""}` };
 }
 
@@ -303,5 +304,41 @@ describe("the dialog", () => {
 
   test("an empty thread invites the first message", () => {
     expect(renderPage({ ...empty }).thread).toContain("Tell Ambrosio");
+  });
+});
+
+
+// --- The dialog lives in its own tab --------------------------------------------
+
+describe("tabs", () => {
+  test("the board is shown first and the dialog is hidden", () => {
+    const m = mountFleet();
+    m.api.render(empty);
+    expect(m.nodes.board.hidden).toBe(false);
+    expect(m.nodes.dialog.hidden).toBe(true);
+  });
+
+  test("switching to the dialog hides the board, and back again", () => {
+    const m = mountFleet();
+    m.api.showTab("dialog");
+    expect(m.nodes.dialog.hidden).toBe(false);
+    expect(m.nodes.board.hidden).toBe(true);
+    m.api.showTab("board");
+    expect(m.nodes.board.hidden).toBe(false);
+  });
+
+  test("an unknown tab falls back to the board rather than hiding everything", () => {
+    const m = mountFleet();
+    expect(m.api.showTab("nonsense")).toBe("board");
+    expect(m.nodes.board.hidden).toBe(false);
+  });
+
+  test("the dialog tab wears a badge with how many instructions stand", () => {
+    const m = mountFleet();
+    m.api.render({ ...empty, instructions: [{ id: "a", text: "x", at: "" }, { id: "b", text: "y", at: "" }] });
+    expect(m.nodes["tab-standing"].textContent).toBe("2");
+    expect(m.nodes["tab-standing"].hidden).toBe(false);
+    m.api.render(empty);
+    expect(m.nodes["tab-standing"].hidden).toBe(true);
   });
 });

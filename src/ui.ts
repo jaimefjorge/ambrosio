@@ -26,7 +26,7 @@ import { realDeps, routeReply } from "./watch.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "10";
+export const UI_VERSION = "11";
 
 /** How much of the thread the page shows; the file keeps all of it. */
 const DIALOG_TAIL = 40;
