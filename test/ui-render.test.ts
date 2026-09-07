@@ -95,3 +95,13 @@ describe("the fleet view's NEEDS YOU panel", () => {
     expect(out.bubble).toContain("waiting on you");
   });
 });
+
+test("the page and the server agree on the API version", () => {
+  // The page hardcodes the version the code on disk expects; the server reports
+  // the one compiled into the running process, and a mismatch is how a stale
+  // server is caught. That only works if these two are bumped together — they
+  // were not, and the fleet view told Jaime to restart a server that was fine.
+  const server = /UI_VERSION = "(\d+)"/.exec(readFileSync(join(rootDir(), "src", "ui.ts"), "utf8"))![1];
+  const page = /UI_VERSION = "(\d+)"/.exec(readFileSync(join(rootDir(), "ui", "index.html"), "utf8"))![1];
+  expect(page).toBe(server);
+});

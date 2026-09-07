@@ -31,7 +31,7 @@ Built against Claude Code 2.1.263, Beads 1.2.2 (Dolt 2.3.2), Bun 1.3.13, macOS.
 | A question is filed against the worker that actually asked it | Fixed, regression-tested | `worker/hooks/resolve-ticket.sh` prefers the session id, then the worktree path, then the env var; verified against the two live sessions that misfired |
 | Reading what Jaime texts | **Fixed, verified against the real database** | `bin/ambrosio inbox` returned a `status` message the channel plugin had silently dropped; a send immediately afterwards was not read back |
 
-179 tests, all passing.
+180 tests, all passing.
 
 ## The inbound channel does not work on this Mac, so Ambrosio reads Messages itself
 
