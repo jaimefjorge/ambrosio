@@ -34,7 +34,7 @@ Tickets live in [Beads](https://github.com/gastownhall/beads) per repo. Quality 
 
 ```
 bin/ambrosio setup     # generates machine-local config, initializes Beads
-bun test               # 58 tests
+bun test               # 64 tests
 ```
 
 ## Status
