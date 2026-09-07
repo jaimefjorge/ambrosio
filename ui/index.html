@@ -80,6 +80,41 @@
   #stale-banner { border-color: var(--failed); background: var(--urgent-bg); padding: 10px 12px;
                   margin-bottom: 10px; color: var(--failed); }
 
+
+  /* --- Ambrosio, the butler in the corner ------------------------------- */
+  #pet {
+    position: fixed; right: 18px; bottom: 18px; z-index: 20;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    user-select: none;
+  }
+  #bubble {
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    background: var(--panel); border: 1px solid var(--line); color: var(--dim);
+    padding: 4px 8px; border-radius: 3px; white-space: nowrap;
+    position: relative; opacity: 0; transition: opacity .25s ease;
+  }
+  #bubble.show { opacity: 1; }
+  #bubble::after {                      /* little pixel tail */
+    content: ""; position: absolute; left: 50%; margin-left: -3px; bottom: -4px;
+    width: 6px; height: 3px; background: var(--panel);
+    border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  #bubble.attention { color: var(--blocked); border-color: var(--blocked); }
+  #bubble.alarm { color: var(--failed); border-color: var(--failed); }
+
+  #screen {
+    background: linear-gradient(180deg, var(--panel), var(--bg));
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.14), inset 0 1px 0 rgba(255,255,255,.25);
+    cursor: pointer; line-height: 0;
+  }
+  #screen:hover { border-color: var(--dim); }
+  #pet canvas {
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    width: 192px; height: 120px; display: block; border-radius: 3px;
+  }
+  @media (max-width: 700px) { #pet { display: none; } }
+
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   td { padding: 5px 12px; border-bottom: 1px solid var(--line); }
   tr:last-child td { border-bottom: 0; }
@@ -135,6 +170,11 @@
 
 <h2>Workers</h2>
 <div id="workers"></div>
+
+<div id="pet" title="Ambrosio">
+  <div id="bubble"></div>
+  <div id="screen"><canvas id="pet-canvas" width="48" height="30"></canvas></div>
+</div>
 
 <aside id="drawer" hidden>
   <div class="head">
@@ -366,6 +406,162 @@ $("workers").addEventListener("click", (e) => {
   if (card) openWorker(card.dataset.id);
 });
 
+
+// --- Ambrosio ---------------------------------------------------------------
+// A 24x24 butler who wanders the corner like a Tamagotchi and reacts to the
+// fleet. Drawn a pixel at a time onto a 48x30 canvas, scaled up by CSS with
+// nearest-neighbour, so it stays properly pixelated at any zoom.
+
+const SPRITES = {
+  stand: ["........................", "........oooooooo........", "......oohhhhhhhhoo......", ".....ohhhhhhhhhhhho.....", "....ohhhhhHHHHhhhhho....", ".....ohhsssssssshho.....", ".....ohsseesseessho.....", ".....ohssssssssssho.....", ".....osssmmmmmmssso.....", ".....ossssddddsssso.....", "......oddddddddddo......", ".......owwwwwwwwo.......", "....occcccwoowccccco....", "...occccccCwwCcccccco...", "...occcccccwwccccccco...", "...occcccccccccccccco...", "...occcccccccccccccco...", "....occcccccccccccco....", ".....occcc....cccco.....", ".....occcc....cccco.....", "....oooooo....oooooo....", "........................", "........................", "........................"],
+  blink: ["........................", "........oooooooo........", "......oohhhhhhhhoo......", ".....ohhhhhhhhhhhho.....", "....ohhhhhHHHHhhhhho....", ".....ohhsssssssshho.....", ".....ohssddssddssho.....", ".....ohssssssssssho.....", ".....osssmmmmmmssso.....", ".....ossssddddsssso.....", "......oddddddddddo......", ".......owwwwwwwwo.......", "....occcccwoowccccco....", "...occccccCwwCcccccco...", "...occcccccwwccccccco...", "...occcccccccccccccco...", "...occcccccccccccccco...", "....occcccccccccccco....", ".....occcc....cccco.....", ".....occcc....cccco.....", "....oooooo....oooooo....", "........................", "........................", "........................"],
+  walk: ["........................", "........oooooooo........", "......oohhhhhhhhoo......", ".....ohhhhhhhhhhhho.....", "....ohhhhhHHHHhhhhho....", ".....ohhsssssssshho.....", ".....ohsseesseessho.....", ".....ohssssssssssho.....", ".....osssmmmmmmssso.....", ".....ossssddddsssso.....", "......oddddddddddo......", ".......owwwwwwwwo.......", "....occcccwoowccccco....", "...occccccCwwCcccccco...", "...occcccccwwccccccco...", "...occcccccccccccccco...", "...occcccccccccccccco...", "....occcccccccccccco....", "....occcc......cccco....", ".....occcc....cccco.....", "...oooooo......oooooo...", "........................", "........................", "........................"],
+  bow: ["........................", "........................", "........................", "........oooooooo........", "......oohhhhhhhhoo......", ".....ohhhhhhhhhhhho.....", "....ohhhhhHHHHhhhhho....", ".....ohhsssssssshho.....", ".....ohsseesseessho.....", ".....ohssssssssssho.....", ".....osssmmmmmmssso.....", ".....ossssddddsssso.....", "......oddddddddddo......", ".......owwwwwwwwo.......", "....occcccwoowccccco....", "...occccccCwwCcccccco...", "...occcccccwwccccccco...", "...occcccccccccccccco...", "...occcccccccccccccco...", "....occcccccccccccco....", ".....occcc....cccco.....", "........................", "........................", "........................"],
+};
+const TRAY = ["..gg.gg.gg..", "waaaaaaaaaaw", ".oAAAAAAAAo."];
+
+const PALETTES = {
+  light: { o: "#14100e", c: "#262422", C: "#3d3936", w: "#f4f1e8", s: "#f2caa2", d: "#c99a6e",
+           h: "#e2ded6", H: "#a9a49a", e: "#241a14", m: "#a49d92",
+           a: "#cfd6dc", A: "#8e979f", g: "#e2ad35" },
+  // Lifted coat plus a grey rim, so he reads as a butler and not a floating head.
+  dark:  { o: "#6d675e", c: "#33302d", C: "#4a4643", w: "#f4f1e8", s: "#f2caa2", d: "#c99a6e",
+           h: "#e8e4dc", H: "#9d988e", e: "#1a1410", m: "#b3aca1",
+           a: "#dbe1e6", A: "#7d858c", g: "#efbb45" },
+};
+let PAL = PALETTES.light;
+
+function pickPalette() {
+  const attr = document.documentElement.dataset.theme;
+  const dark = attr === "dark" || (attr !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  PAL = dark ? PALETTES.dark : PALETTES.light;
+}
+pickPalette();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { pickPalette(); drawScene(); });
+
+const pet = {
+  x: 12, dir: 1, mood: "idle", pose: "stand",
+  hold: 0,        // ticks left in the current pose
+  blink: 0, t: 0, bounce: 0,
+};
+
+const cv = $("pet-canvas");
+const cx = cv.getContext("2d");
+cx.imageSmoothingEnabled = false;
+
+function px(x, y, colour) {
+  cx.fillStyle = colour;
+  cx.fillRect(x, y, 1, 1);
+}
+
+function stamp(rows, ox, oy, flip) {
+  const w = rows[0].length;
+  rows.forEach((row, y) => {
+    for (let x = 0; x < w; x++) {
+      const ch = row[x];
+      if (ch === ".") continue;
+      const colour = PAL[ch];
+      if (colour) px(ox + (flip ? w - 1 - x : x), oy + y, colour);
+    }
+  });
+}
+
+function drawScene() {
+  cx.clearRect(0, 0, 48, 30);
+
+  // a quiet dotted floor, so he is standing somewhere rather than nowhere
+  for (let x = 1; x < 47; x += 3) px(x, 27, PAL.H);
+
+  const bounce = pet.mood === "alarm" ? (pet.t % 4 < 2 ? -2 : 0)
+               : pet.mood === "attention" ? (pet.t % 10 < 5 ? -1 : 0)
+               : (pet.pose === "walk" && pet.t % 2 === 0) ? -1 : 0;
+  const y = 3 + bounce;
+
+  // contact shadow, tightened when he lifts off
+  const shadow = bounce ? 8 : 10;
+  for (let i = 0; i < shadow; i++) px(pet.x + 7 + i + (10 - shadow) / 2, 26, PAL.H);
+
+  // he turns to face you the moment he needs something
+  const facing = (pet.mood === "attention" || pet.mood === "alarm") ? false : pet.dir < 0;
+  let pose = pet.pose;
+  if (pet.blink > 0) pose = "blink";
+  stamp(SPRITES[pose] || SPRITES.stand, pet.x, y, facing);
+
+  // The tray rides at his waist while he works and lifts to chest height when
+  // he is presenting something to you. A slow wobble keeps it alive.
+  const wobble = pet.t % 8 < 4 ? 0 : 1;
+  const trayY = y + ((pet.mood === "attention" || pet.mood === "alarm") ? 11 : 15) + wobble;
+  stamp(TRAY, pet.x + 6, trayY, false);
+}
+
+const MOODS = {
+  idle:      { text: "all quiet" },
+  busy:      { text: "working" },
+  attention: { text: "needs you" },
+  alarm:     { text: "check the board" },
+};
+
+function setMood(d) {
+  const failed = d.workers.filter((w) => w.state === "failed").length;
+  const blocked = d.workers.filter((w) => w.state === "blocked").length;
+  const working = d.workers.filter((w) => w.state === "working").length;
+
+  let mood = "idle", text = MOODS.idle.text;
+  if (failed || d.anomalies.length) {
+    mood = "alarm";
+    text = failed ? `${failed} worker${failed > 1 ? "s" : ""} failed` : "something is off";
+  } else if (d.questions.length || blocked) {
+    mood = "attention";
+    const n = d.questions.length || blocked;
+    text = `${n} waiting on you`;
+  } else if (working) {
+    mood = "busy";
+    text = `${working} working`;
+  }
+
+  pet.mood = mood;
+  const b = $("bubble");
+  b.textContent = text;
+  b.className = "show " + mood;
+}
+
+function tick() {
+  pet.t++;
+  if (pet.blink > 0) pet.blink--;
+  else if (Math.random() < 0.03) pet.blink = 2;
+
+  if (pet.mood === "attention" || pet.mood === "alarm") {
+    pet.pose = "stand";          // he stops and faces you when he needs something
+  } else if (pet.hold > 0) {
+    pet.hold--;
+  } else if (pet.pose === "walk") {
+    pet.x += pet.dir;
+    if (pet.x <= 1) { pet.x = 1; pet.dir = 1; }
+    if (pet.x >= 23) { pet.x = 23; pet.dir = -1; }
+    // busy means brisk; idle means he stops to look around
+    if (pet.mood === "idle" && Math.random() < 0.06) { pet.pose = "stand"; pet.hold = 8 + (Math.random() * 16 | 0); }
+  } else {
+    if (Math.random() < (pet.mood === "busy" ? 0.6 : 0.15)) {
+      pet.pose = "walk";
+      if (Math.random() < 0.4) pet.dir *= -1;
+    } else if (Math.random() < 0.05) {
+      pet.pose = "bow"; pet.hold = 5;
+    }
+  }
+  if (pet.pose === "bow" && pet.hold === 0) pet.pose = "stand";
+
+  drawScene();
+}
+
+$("screen").addEventListener("click", () => {   // a butler bows when greeted
+  pet.pose = "bow";
+  pet.hold = 6;
+  drawScene();
+});
+
+drawScene();
+setInterval(tick, 130);   // 8fps, the way these things moved
+
 async function poll() {
   try {
     const r = await fetch("/api/board");
@@ -375,6 +571,7 @@ async function poll() {
       '<div class="panel" id="stale-banner">This page is newer than the server it is talking to, ' +
       'so some of it will not work. Restart it: <b>bin/ambrosio ui</b></div>';
     render(d);
+    setMood(d);
     $("live").className = "";
     $("live").textContent = "updated " + new Date().toLocaleTimeString();
     loadDetail();
