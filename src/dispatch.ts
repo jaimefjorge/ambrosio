@@ -98,9 +98,13 @@ export function dispatchTicket(
     },
   });
 
-  tracker.setMeta(repo, ticket.id, { session: result.id });
+  // Resolve the full session UUID now; `answer` needs it and the short id will not do.
+  const spawned = agents.workers().find((a) => a.id === result.id || a.name === ticket.id);
+  const sessionId = spawned?.sessionId;
+  tracker.setMeta(repo, ticket.id, { session: result.id, ...(sessionId ? { session_uuid: sessionId } : {}) });
   journal.recordSession(cfg.homeDir, repo.name, ticket.id, {
     id: result.id,
+    sessionId,
     startedAt: new Date().toISOString(),
   });
   journal.append(cfg.homeDir, `dispatched ${repo.name} ${ticket.id} (${ticket.title}) as session ${result.id}`);
@@ -108,24 +112,40 @@ export function dispatchTicket(
   return { ...result, promptPath };
 }
 
-/** Send an answer back to the worker that asked, restarting it if its process has stopped. */
+/**
+ * Send an answer back to the worker that asked.
+ *
+ * `claude --bg --resume <id>` continues the session under the same id, but it
+ * starts a *copy* if that session is still running. So a worker that is mid-turn
+ * is never interrupted: its answer stays queued and the next tick delivers it
+ * once the worker has parked. A working worker is making progress anyway.
+ */
 export function deliverAnswer(
   cfg: AmbrosioConfig,
   opts: { ticket: string; repo: string; sessionId?: string; text: string },
-): "messaged" | "resumed" {
+  deps: { workers: () => agents.Agent[]; resume: typeof agents.resumeStopped } = { workers: agents.workers, resume: agents.resumeStopped },
+): "resumed" | "deferred" {
   const repo = repoByName(cfg, opts.repo);
-  const live = agents.workers().find((a) => a.name === opts.ticket);
-  const body = `Ambrosio relaying Jaime's decision: ${opts.text}`;
+  const live = deps.workers().find((a) => a.name === opts.ticket);
 
-  if (live && (live.state === "working" || live.state === "blocked") && live.pid) {
-    agents.message(opts.ticket, body);
-    journal.append(cfg.homeDir, `answered ${opts.ticket} (live session)`);
-    return "messaged";
+  if (live?.state === "working") {
+    journal.append(cfg.homeDir, `answer for ${opts.ticket} held: worker is still running`);
+    return "deferred";
   }
 
-  const id = live?.id ?? opts.sessionId;
-  if (!id) throw new DispatchError(`no session found for ${opts.ticket}; dispatch it again instead`);
-  agents.resume(id, `${body}\n\nContinue the ticket from where you stopped. Read your work directory first.`, repo.path);
+  // The full session UUID, never the short job id: the short id starts a copy.
+  const id = live?.sessionId ?? opts.sessionId;
+  if (!id) throw new DispatchError(`no session UUID found for ${opts.ticket}; dispatch it again instead`);
+
+  const body = [
+    `Ambrosio relaying Jaime's decision: ${opts.text}`,
+    "",
+    "Continue the ticket from where you stopped. Read your work directory first (plan.md, log.md, evidence.md) to remember what you already did, then carry on through verification and hand-over.",
+  ].join("\n");
+
+  // Stop before resuming: a merely-blocked session still has a live process, and
+  // resuming a running session forks it into a second worker on the same ticket.
+  deps.resume(live?.id, id, body, repo.path);
   tracker.transition(repo, opts.ticket, "in_progress", `Ambrosio: answer delivered — ${opts.text.slice(0, 200)}`);
   journal.append(cfg.homeDir, `answered ${opts.ticket} (resumed session ${id})`);
   return "resumed";

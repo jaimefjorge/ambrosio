@@ -85,3 +85,9 @@ test("agents: enrich reads the job summary, parseDispatchId reads the id, busy f
   ] as any;
   expect(busy(list)).toHaveLength(2);
 });
+
+test("agents.resume refuses a short job id rather than silently forking the session", async () => {
+  const { resume, AgentError } = await import("../src/agents.ts");
+  expect(() => resume("c3912149", "go")).toThrow(AgentError);
+  expect(() => resume("c3912149", "go")).toThrow(/full session UUID/);
+});

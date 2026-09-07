@@ -153,8 +153,12 @@ switch (cmd) {
     queue.answer(c.homeDir, qid, text);
     try {
       const how = deliverAnswer(c, { ticket: item.ticket, repo: item.repo, sessionId: item.sessionId, text });
-      queue.markDelivered(c.homeDir, qid);
-      out(`${qid} answered and ${how} to ${item.ticket}`);
+      if (how === "resumed") {
+        queue.markDelivered(c.homeDir, qid);
+        out(`${qid} answered and delivered to ${item.ticket}`);
+      } else {
+        out(`${qid} answered and held: ${item.ticket} is still working. The next tick delivers it.`);
+      }
     } catch (e) {
       out(`${qid} recorded, but delivery failed: ${(e as Error).message}`);
     }

@@ -123,27 +123,60 @@ export function parseDispatchId(output: string): string | null {
   return alt ? alt[1] : null;
 }
 
-/** Deliver text to a running session by name (starts its next turn if idle). */
-export function message(name: string, text: string): void {
-  const r = spawnSync("claude", ["-p", `Send this message to the session named ${name}: ${text}`], {
-    encoding: "utf8",
-    timeout: 120_000,
-  });
-  if (r.status !== 0) throw new AgentError(`message to ${name} failed: ${(r.stderr ?? "").trim().slice(0, 200)}`);
-}
-
-/** Restart a stopped background session under the same id with a new prompt. */
-export function resume(id: string, prompt: string, cwd?: string): void {
-  const r = spawnSync("claude", ["--bg", "--resume", id, prompt], {
+/**
+ * Continue a background session with a new prompt.
+ *
+ * Two traps, both learned the hard way and both guarded here:
+ *
+ * 1. `sessionId` must be the full session UUID. The short job id makes Claude
+ *    Code start a *copy* under a new id, which would give one ticket two workers.
+ * 2. A session that is merely "blocked" still has a live process, and resuming a
+ *    running session also forks it. Callers must stop it first; `resumeStopped`
+ *    below does that. We detect the fork in the output and fail loudly either way.
+ */
+export function resume(sessionId: string, prompt: string, cwd?: string): void {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+    throw new AgentError(
+      `resume needs the full session UUID, got ${JSON.stringify(sessionId)}. The short job id starts a copy instead of continuing the session.`,
+    );
+  }
+  const r = spawnSync("claude", ["--bg", "--resume", sessionId, prompt], {
     encoding: "utf8",
     cwd,
     maxBuffer: 8 * 1024 * 1024,
   });
-  if (r.status !== 0) throw new AgentError(`resume ${id} failed: ${(r.stderr ?? "").trim().slice(0, 200)}`);
+  const output = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
+  if (r.status !== 0) throw new AgentError(`resume ${sessionId} failed: ${output.trim().slice(0, 200)}`);
+  if (/started a copy of that conversation/i.test(output)) {
+    throw new AgentError(`resume ${sessionId} started a copy instead of continuing the session: ${output.trim().slice(0, 200)}`);
+  }
 }
 
 export function stop(id: string): void {
   spawnSync("claude", ["stop", id], { encoding: "utf8" });
+}
+
+/**
+ * Give a parked worker a new prompt without forking it.
+ *
+ * Claude Code keeps a stopped session's conversation and `--resume` continues it
+ * under the same id once it is stopped, so stopping first is what makes this
+ * deterministic. `shortId` is the job id `claude stop` takes; `sessionId` is the
+ * UUID `--resume` takes. They are different strings for the same session.
+ */
+export function resumeStopped(
+  shortId: string | undefined,
+  sessionId: string,
+  prompt: string,
+  cwd?: string,
+  waitMs = 1500,
+): void {
+  if (shortId) {
+    stop(shortId);
+    // The supervisor needs a moment to mark the process stopped.
+    Bun.sleepSync(waitMs);
+  }
+  resume(sessionId, prompt, cwd);
 }
 
 export function logs(id: string, lines = 40): string {

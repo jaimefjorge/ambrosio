@@ -70,3 +70,39 @@ test("dispatchTicket refuses an unknown repo", async () => {
   const { dispatchTicket } = await import("../src/dispatch.ts");
   expect(() => dispatchTicket(cfg(), "nope", "c-a1b", { dispatch: () => ({ id: "x", name: "y" }), countBusy: () => 0 })).toThrow(/unknown repo/);
 });
+
+test("deliverAnswer holds the answer while the worker is still running", async () => {
+  const { deliverAnswer } = await import("../src/dispatch.ts");
+  let resumed = false;
+  const how = deliverAnswer(
+    cfg(), { ticket: "c-a1b", repo: "core", sessionId: "s1", text: "option a" },
+    { workers: () => [{ kind: "background", cwd: "/tmp/core", name: "c-a1b", state: "working", id: "s1" } as any],
+      resume: () => { resumed = true; } },
+  );
+  expect(how).toBe("deferred");
+  expect(resumed).toBe(false);
+});
+
+test("deliverAnswer errors clearly when there is no session to resume", async () => {
+  const { deliverAnswer } = await import("../src/dispatch.ts");
+  expect(() =>
+    deliverAnswer(cfg(), { ticket: "c-a1b", repo: "core", text: "x" }, { workers: () => [], resume: () => {} }),
+  ).toThrow(/no session UUID found/);
+});
+
+test("deliverAnswer resumes with the session UUID, never the short job id", async () => {
+  const { deliverAnswer } = await import("../src/dispatch.ts");
+  let usedId = "";
+  // A parked worker: short id "c391", full uuid in sessionId.
+  try {
+    deliverAnswer(
+      cfg(), { ticket: "c-a1b", repo: "core", sessionId: "c3912149-1d31-4660-b2ee-56ebac4905fc", text: "a" },
+      {
+        workers: () => [{ kind: "background", cwd: "/tmp/core", name: "c-a1b", state: "blocked",
+                          id: "c3912149", sessionId: "c3912149-1d31-4660-b2ee-56ebac4905fc" } as any],
+        resume: (_short, uuid) => { usedId = uuid; },
+      },
+    );
+  } catch { /* tracker write is not stubbed; the id is what this test asserts */ }
+  expect(usedId).toBe("c3912149-1d31-4660-b2ee-56ebac4905fc");
+});
