@@ -81,3 +81,39 @@ test("urgent messages say what to do and how to reply", () => {
   expect(msg).toContain("⚠");
   expect(msg).toContain("Reply Q-abc a|b");
 });
+
+// --- Stale workers are a decision, not an FYI --------------------------------
+// On 2026-09-07 gmc-4or sat in FYI for 3h44 saying "marked working but has done
+// nothing". Jaime read past it. A dead worker holding a ticket is the manager's
+// most actionable fact, so it gets its own section above the noise.
+
+test("a stale worker gets its own section, named with its ticket and how long", () => {
+  const out = renderDigest(board({
+    stale: [{
+      agent: { kind: "background", cwd: "/x", name: "gmc-4or", state: "working" },
+      ticket: t({ id: "gmc-4or", repo: "gatemd-core", title: "Fresh-repo e2e", status: "in_progress" }),
+      silentMinutes: 224,
+    }],
+  }));
+  const text = out.join("\n");
+  expect(text).toContain("STALE");
+  expect(text).toContain("gatemd-core gmc-4or");
+  expect(text).toContain("3h44");
+  expect(text).toContain("in_progress");
+  // It must not be buried in FYI as well.
+  expect(text.indexOf("STALE")).toBeLessThan(text.indexOf("FYI") === -1 ? Infinity : text.indexOf("FYI"));
+});
+
+test("the headline counts stale workers separately from working ones", () => {
+  const out = renderDigest(board({
+    working: [{ agent: { kind: "background", cwd: "/x", name: "gmc-gfh" } }],
+    stale: [{ agent: { kind: "background", cwd: "/x", name: "gmc-4or" }, silentMinutes: 60 }],
+  }));
+  expect(out[0]).toContain("1 working");
+  expect(out[0]).toContain("1 stale");
+});
+
+test("no stale workers means no stale section", () => {
+  const out = renderDigest(board({ working: [{ agent: { kind: "background", cwd: "/x", name: "gmc-gfh" } }] }));
+  expect(out.join("\n")).not.toContain("STALE");
+});

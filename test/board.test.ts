@@ -112,3 +112,74 @@ test("a blocked session is waiting on Jaime, not stalled", () => {
   const silent = new Date("2026-09-08T09:00:00Z");
   expect(detectAnomalies(cfg(), [], [working({ state: "blocked" })], [], () => silent, NOW)).toEqual([]);
 });
+
+// --- A stale session must not hold a WIP slot --------------------------------
+// 2026-09-07: gmc-4or's session ended at 12:07. `claude agents` kept reporting
+// state=working, so it stayed in board.working for 3h44, held one of three WIP
+// slots, and the day ran at 4/3 while the anomaly sat unread under an FYI.
+// Detecting it was never the problem. Acting on it was.
+
+test("a stale worker is not counted against the WIP limit", () => {
+  const c = cfg();
+  const silent = () => new Date("2026-09-08T12:00:00Z");
+  const board = collectBoard(
+    c,
+    NOW,
+    deps(
+      [t({ id: "c-1", status: "in_progress" }), t({ id: "c-2", status: "in_progress" })],
+      [a({ name: "c-1", state: "working", sessionId: "s1" }), a({ name: "c-2", state: "working", sessionId: "s2" })],
+    ),
+    silent,
+  );
+  expect(wipUsed(board)).toBe(0);
+  expect(canDispatch(c, board)).toBe(true);
+});
+
+test("a stale worker is surfaced as stale, with the ticket it abandoned", () => {
+  const board = collectBoard(
+    cfg(),
+    NOW,
+    deps([t({ id: "c-1", status: "in_progress" })], [a({ name: "c-1", state: "working", sessionId: "s1" })]),
+    () => new Date("2026-09-08T12:00:00Z"),
+  );
+  expect(board.stale).toHaveLength(1);
+  expect(board.stale[0].ticket?.id).toBe("c-1");
+  expect(board.stale[0].silentMinutes).toBe(210);
+  expect(board.working).toHaveLength(0);
+});
+
+test("a live worker keeps its slot and stays out of stale", () => {
+  const c = cfg();
+  const board = collectBoard(
+    c,
+    NOW,
+    deps([t({ id: "c-1", status: "in_progress" })], [a({ name: "c-1", state: "working", sessionId: "s1" })]),
+    () => new Date("2026-09-08T15:20:00Z"),
+  );
+  expect(wipUsed(board)).toBe(1);
+  expect(board.stale).toEqual([]);
+});
+
+test("a blocked worker holds its slot — it is waiting on Jaime, not dead", () => {
+  const c = cfg();
+  const board = collectBoard(
+    c,
+    NOW,
+    deps([t({ id: "c-1", status: "in_progress" })], [a({ name: "c-1", state: "blocked", sessionId: "s1" })]),
+    () => new Date("2026-09-08T09:00:00Z"),
+  );
+  expect(wipUsed(board)).toBe(1);
+  expect(board.stale).toEqual([]);
+});
+
+test("a worker with no transcript yet is not declared stale", () => {
+  const c = cfg();
+  const board = collectBoard(
+    c,
+    NOW,
+    deps([t({ id: "c-1", status: "in_progress" })], [a({ name: "c-1", state: "working", sessionId: "s1" })]),
+    () => null,
+  );
+  expect(wipUsed(board)).toBe(1);
+  expect(board.stale).toEqual([]);
+});

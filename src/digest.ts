@@ -11,6 +11,8 @@ export type BoardState = {
   plans: Ticket[];
   accept: Ticket[];
   working: { ticket?: Ticket; agent: Agent }[];
+  /** Sessions the daemon calls `working` that have in fact gone quiet. */
+  stale?: { ticket?: Ticket; agent: Agent; silentMinutes: number }[];
   blocked: Ticket[];
   anomalies: string[];
   tokensToday?: number;
@@ -29,6 +31,11 @@ export function assignKeys(board: BoardState): DigestKeys {
   board.plans.forEach((t, i) => (keys.plans[`P${i + 1}`] = t));
   board.accept.forEach((t, i) => (keys.accept[`A${i + 1}`] = t));
   return keys;
+}
+
+/** "45m", "3h44" — the shape a phone can read at a glance. */
+export function duration(mins: number): string {
+  return mins < 120 ? `${mins}m` : `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`;
 }
 
 function hhmm(d: Date): string {
@@ -57,6 +64,7 @@ export function renderDigest(board: BoardState): string[] {
     board.plans.length ? `${board.plans.length} plan${board.plans.length > 1 ? "s" : ""}` : null,
     board.accept.length ? `${board.accept.length} to accept` : null,
     board.working.length ? `${board.working.length} working` : null,
+    board.stale?.length ? `${board.stale.length} stale` : null,
   ].filter(Boolean);
   lines.push(`Ambrosio · ${hhmm(board.now)} · ${counts.length ? counts.join(", ") : "all quiet"}`);
 
@@ -94,6 +102,15 @@ export function renderDigest(board: BoardState): string[] {
         t.metadata?.review ? String(t.metadata.review).slice(0, 80) : null,
       ].filter(Boolean);
       if (bits.length) lines.push(`  ${bits.join(" · ")}`);
+    }
+  }
+
+  if (board.stale?.length) {
+    lines.push("", "STALE");
+    for (const s of board.stale) {
+      const name = s.ticket ? `${s.ticket.repo} ${s.ticket.id}` : (s.agent.name ?? s.agent.id ?? "session");
+      const where = s.ticket ? ` · ticket still ${s.ticket.status}` : "";
+      lines.push(`${name} silent ${duration(s.silentMinutes)}${where} — slot freed, re-dispatch or park it`);
     }
   }
 

@@ -5,7 +5,7 @@ import * as agents from "./agents.ts";
 import type { Agent } from "./agents.ts";
 import * as queue from "./queue.ts";
 import { lastActivityAt } from "./transcript.ts";
-import type { BoardState } from "./digest.ts";
+import { duration, type BoardState } from "./digest.ts";
 
 export type Deps = {
   listTickets: (repo: { name: string; path: string; prefix: string }, statuses?: string[]) => Ticket[];
@@ -26,11 +26,19 @@ export type Board = BoardState & {
   agents: Agent[];
 };
 
+/** A session the daemon still calls `working` that has in fact gone quiet. */
+export type Stale = { agent: Agent; ticket?: Ticket; silentMinutes: number };
+
 /**
  * One read of the whole world: tickets across every repo, live sessions,
  * parked questions, and the anomalies that deserve a human's attention.
  */
-export function collectBoard(cfg: AmbrosioConfig, now = new Date(), deps: Deps = realDeps): Board {
+export function collectBoard(
+  cfg: AmbrosioConfig,
+  now = new Date(),
+  deps: Deps = realDeps,
+  lastActivity: (a: Agent) => Date | null = (a) => (a.sessionId ? lastActivityAt(a.sessionId, a.cwd) : null),
+): Board {
   const all: Ticket[] = [];
   const errors: string[] = [];
   for (const repo of cfg.repos) {
@@ -58,11 +66,21 @@ export function collectBoard(cfg: AmbrosioConfig, now = new Date(), deps: Deps =
   const blocked = [...byStatus("blocked"), ...needsInput];
   const activeTickets = all.filter((t) => (tracker.ACTIVE_STATUSES as readonly string[]).includes(t.status));
 
-  const working = workers
-    .filter((a) => a.state === "working" || a.state === "blocked")
-    .map((a) => ({ agent: a, ticket: activeTickets.find((t) => t.id === a.name) }));
+  // `state` is the daemon's word, and it outlives the session: a finished
+  // worker keeps reporting `working` while its pid is recycled into a spare.
+  // Trusting it cost a WIP slot for 3h44 on 2026-09-07. The transcript is the
+  // only witness that cannot lie about whether anything is still happening.
+  const stale: Stale[] = [];
+  const working: { agent: Agent; ticket?: Ticket }[] = [];
+  for (const a of workers) {
+    if (a.state !== "working" && a.state !== "blocked") continue;
+    const ticket = activeTickets.find((t) => t.id === a.name);
+    const mins = a.state === "working" ? silentMinutes(a, lastActivity, now) : null;
+    if (mins !== null && mins >= SILENT_MINUTES) stale.push({ agent: a, ticket, silentMinutes: mins });
+    else working.push({ agent: a, ticket });
+  }
 
-  const anomalies = [...errors, ...detectAnomalies(cfg, all, workers, questions)];
+  const anomalies = [...errors, ...detectAnomalies(cfg, all, workers, questions, lastActivity, now)];
 
   return {
     now,
@@ -72,6 +90,7 @@ export function collectBoard(cfg: AmbrosioConfig, now = new Date(), deps: Deps =
     working,
     blocked,
     anomalies,
+    stale,
     ready: all.filter((t) => t.status === "open"),
     needsInput,
     all,
@@ -83,6 +102,12 @@ export function collectBoard(cfg: AmbrosioConfig, now = new Date(), deps: Deps =
 /** Things that are wrong and a human would want named. */
 /** A session that has emitted nothing for this long is not really working. */
 export const SILENT_MINUTES = 45;
+
+/** Minutes since this session last wrote anything, or null if it never has. */
+function silentMinutes(a: Agent, lastActivity: (a: Agent) => Date | null, now: Date): number | null {
+  const last = lastActivity(a);
+  return last ? Math.round((now.getTime() - last.getTime()) / 60000) : null;
+}
 
 export function detectAnomalies(
   cfg: AmbrosioConfig,
@@ -99,10 +124,9 @@ export function detectAnomalies(
     // A stale `working` flag is worse than a crash: it looks healthy, and it
     // holds a WIP slot while quietly blocking every answer bound for it.
     if (a.state === "working") {
-      const last = lastActivity(a);
-      const mins = last ? Math.round((now.getTime() - last.getTime()) / 60000) : null;
+      const mins = silentMinutes(a, lastActivity, now);
       if (mins !== null && mins >= SILENT_MINUTES) {
-        out.push(`${a.name ?? a.id} is marked working but has done nothing for ${mins < 120 ? `${mins}m` : `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`} — answers for it are being held`);
+        out.push(`${a.name ?? a.id} is marked working but has done nothing for ${duration(mins)} — its WIP slot is free and answers for it are being held`);
       }
     }
     if (a.state === "stopped" && a.name && tickets.some((t) => t.id === a.name && (tracker.ACTIVE_STATUSES as readonly string[]).includes(t.status))) {

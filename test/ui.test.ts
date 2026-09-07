@@ -50,13 +50,15 @@ describe("buildPayload", () => {
     expect(p.workers[0].repo).toBe("gatemd");
   });
 
-  test("counts only working and blocked against the WIP limit", () => {
+  test("WIP on screen is the board's reconciled count, not the daemon's state", () => {
+    // The board decides who holds a slot (it has reconciled `state` against the
+    // transcript). The screen repeats that; it must not re-derive it from
+    // agents, which is how a dead worker was counted as busy on 2026-09-07.
+    const w1 = agent({ name: "T-1", state: "working" });
+    const w2 = agent({ name: "T-2", state: "blocked" });
     const p = buildPayload(cfg, board({
-      agents: [
-        agent({ name: "T-1", state: "working" }),
-        agent({ name: "T-2", state: "blocked" }),
-        agent({ name: "T-3", state: "done" }),
-      ],
+      agents: [w1, w2, agent({ name: "T-3", state: "done" })],
+      working: [{ agent: w1 }, { agent: w2 }],
     }));
     expect(p.wip).toEqual({ used: 2, limit: 3 });
   });
@@ -140,4 +142,32 @@ describe("things waiting on Jaime other than questions", () => {
     const p = buildPayload(cfg, board());
     expect([...p.questions, ...p.plans, ...p.accept]).toEqual([]);
   });
+});
+
+// --- The screen must agree with the board about who is alive -----------------
+// 2026-09-07: the UI counted a dead session toward WIP because it read the
+// daemon's `state` directly instead of the board's reconciled view.
+
+test("a stale worker is shown as stale and does not count toward WIP on screen", async () => {
+  const { buildPayload } = await import("../src/ui.ts");
+  const { collectBoard } = await import("../src/board.ts");
+  const c = {
+    ...cfg,
+    repos: [{ name: "core", path: "/tmp/core", prefix: "c" }],
+  } as AmbrosioConfig;
+  const board = collectBoard(
+    c,
+    new Date("2026-09-08T15:30:00Z"),
+    {
+      listTickets: (r) => (r.name === c.repos[0].name ? [{ id: "c-1", title: "e2e", status: "in_progress", priority: 0, repo: r.name }] : []),
+      listAgents: () => [{ kind: "background", cwd: "/tmp/core", name: "c-1", id: "j1", state: "working", sessionId: "s1" } as any],
+      listQueue: () => [],
+    },
+    () => new Date("2026-09-08T12:00:00Z"),
+  );
+  const payload = buildPayload(c, board);
+  expect(payload.wip.used).toBe(0);
+  const w = payload.workers.find((x) => x.name === "c-1")!;
+  expect(w.state).toBe("stale");
+  expect(w.silentFor).toBe(210);
 });

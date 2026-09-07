@@ -80,21 +80,27 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
   const byId = new Map(board.all.map((t) => [t.id.toLowerCase(), t]));
   const keys = assignKeys(board);
 
+  // The board has already reconciled the daemon's `state` against the
+  // transcript. Reading `a.state` again here is how the screen came to show a
+  // dead worker as working, and to count it against WIP, on 2026-09-07.
+  const staleById = new Map((board.stale ?? []).map((s) => [s.agent.id ?? s.agent.name, s]));
+
   const workers: UiWorker[] = board.agents
     .filter((a) => a.kind === "background")
     .map((a) => {
       const ticket = a.name ? byId.get(a.name.toLowerCase()) : undefined;
+      const stale = staleById.get(a.id ?? a.name);
       const last = a.state === "working" && a.sessionId ? lastActivityAt(a.sessionId, a.cwd) : null;
       return {
         id: a.id,
         name: a.name,
-        state: a.state ?? "unknown",
+        state: stale ? "stale" : (a.state ?? "unknown"),
         detail: a.detail,
         needs: a.needs,
         tokens: a.tokens,
         startedAt: a.startedAt,
         cwd: a.cwd,
-        silentFor: last ? Math.round((Date.now() - last.getTime()) / 60000) : null,
+        silentFor: stale ? stale.silentMinutes : last ? Math.round((Date.now() - last.getTime()) / 60000) : null,
         title: ticket?.title,
         repo: ticket?.repo,
         ticketStatus: ticket?.status,
@@ -117,7 +123,7 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
 
   return {
     now: board.now.toISOString(),
-    wip: { used: workers.filter((w) => BUSY.has(w.state)).length, limit: cfg.wipLimit },
+    wip: { used: (board.working ?? []).length, limit: cfg.wipLimit },
     workers,
     questions,
     plans: decisions(keys.plans),
