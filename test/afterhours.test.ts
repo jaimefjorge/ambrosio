@@ -112,3 +112,67 @@ describe("a pass of the night", () => {
     expect(dispatched).toEqual(["good"]);
   });
 });
+
+// --- The night must not tangle -------------------------------------------------
+// 2026-09-07: by 16:11 the fleet view showed nine cards. The night lane had
+// filled "free" slots every pass — counting free from the daemon's lying
+// `state` — and the tickets it started were ones the previous night-workers
+// had just filed. Jaime: "you should not have an army of agents stalled that
+// looks terrible and just ruins the experience tomorrow morning."
+
+const WRAP = new Date(2026, 8, 7, 15, 0);
+
+describe("what the night may start", () => {
+  test("never a ticket filed after wrap-up: that is tonight's workers feeding themselves", () => {
+    const before = t({ id: "old", created_at: "2026-09-07T10:00:00Z" });
+    const after = t({ id: "new", created_at: "2026-09-07T15:30:00Z" });
+    expect(nightEligible([before, after], WRAP).map((x) => x.id)).toEqual(["old"]);
+  });
+
+  test("a ticket with no creation time is treated as new — the safe reading", () => {
+    expect(nightEligible([t({ id: "x", created_at: undefined })], WRAP)).toEqual([]);
+  });
+});
+
+describe("the night's budget", () => {
+  const busyDeps = (over: Partial<NightDeps> = {}) => deps({
+    ready: () => [t({ id: "1", created_at: "2026-09-07T10:00:00Z" }), t({ id: "2", created_at: "2026-09-07T10:00:00Z" }), t({ id: "3", created_at: "2026-09-07T10:00:00Z" }), t({ id: "4", created_at: "2026-09-07T10:00:00Z" })],
+    wrapUpAt: () => WRAP,
+    ...over,
+  });
+
+  test("free slots come from the reconciled board, not the daemon's state", () => {
+    const dispatched: string[] = [];
+    afterHoursPass(cfg, busyDeps({
+      workers: () => [{ name: "z", state: "working", kind: "background", cwd: "" } as any],
+      busy: () => 3,                       // the board says every slot is held
+      dispatch: (_c, _r, id) => dispatched.push(id),
+    }));
+    expect(dispatched).toEqual([]);
+  });
+
+  test("a whole night starts at most WIP-limit tickets, however many passes run", () => {
+    const dispatched: string[] = [];
+    let started: string[] = [];
+    const d = busyDeps({
+      busy: () => 0,                       // slots keep freeing as workers finish
+      startedTonight: () => started,
+      recordStart: (_c, id) => { started = [...started, id]; },
+      dispatch: (_c, _r, id) => dispatched.push(id),
+    });
+    afterHoursPass(cfg, d);
+    afterHoursPass(cfg, d);
+    afterHoursPass(cfg, d);
+    expect(dispatched).toEqual(["1", "2", "3"]);
+  });
+
+  test("what the night already started counts against the cap even if it has since stopped", () => {
+    const dispatched: string[] = [];
+    afterHoursPass(cfg, busyDeps({
+      busy: () => 0,
+      startedTonight: () => ["a", "b", "c"],
+      dispatch: (_c, _r, id) => dispatched.push(id),
+    }));
+    expect(dispatched).toEqual([]);
+  });
+});

@@ -208,3 +208,53 @@ describe("a worker that says it is working but is not", () => {
     expect(worker(null)).not.toContain("silent");
   });
 });
+
+// --- The morning must not open on a graveyard -------------------------------
+// 2026-09-07, 16:11: nine cards, seven of them stopped or done. The view exists
+// to catch a worker that failed silently, not to memorialise every session.
+
+describe("parked and finished workers fold away", () => {
+  const w = (o: any) => ({ id: o.name, cwd: "/w", ...o });
+
+  test("only live, stuck, stale and failed workers sit in the main grid", () => {
+    const out = renderPage({ ...empty, workers: [
+      w({ name: "live", state: "working" }),
+      w({ name: "stuck", state: "blocked" }),
+      w({ name: "quiet", state: "stale" }),
+      w({ name: "broke", state: "failed" }),
+      w({ name: "parked", state: "stopped", ticketStatus: "deferred" }),
+      w({ name: "finished", state: "done" }),
+    ] }).workers;
+    const grid = out.split("<details")[0];
+    for (const n of ["live", "stuck", "quiet", "broke"]) expect(grid).toContain(n);
+    for (const n of ["parked", "finished"]) expect(grid).not.toContain(n);
+  });
+
+  test("the folded section counts what it hides and can be opened", () => {
+    const out = renderPage({ ...empty, workers: [
+      w({ name: "parked", state: "stopped" }),
+      w({ name: "finished", state: "done" }),
+    ] }).workers;
+    expect(out).toContain("<details");
+    expect(out).toContain("2 parked or finished");
+    expect(out).toContain("parked");
+    expect(out).toContain("finished");
+  });
+
+  test("with nothing live and nothing folded, it still says so plainly", () => {
+    expect(renderPage({ ...empty, workers: [] }).workers).toContain("No workers running.");
+  });
+
+  test("the header counts live workers, not every session ever", () => {
+    const out = renderPage({ ...empty, workers: [
+      w({ name: "a", state: "working" }), w({ name: "b", state: "stopped" }), w({ name: "c", state: "done" }),
+    ] }).stats;
+    expect(out).toContain("workers <b>1</b>");
+    expect(out).toContain("parked <b>2</b>");
+  });
+
+  test("a paused fleet says so in the header", () => {
+    const out = renderPage({ ...empty, paused: { since: "2026-09-07T15:58:00Z", reason: "taking stock" } }).stats;
+    expect(out).toContain("PAUSED");
+  });
+});

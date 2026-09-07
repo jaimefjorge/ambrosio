@@ -16,11 +16,20 @@ export function isAfterHours(cfg: AmbrosioConfig, now = new Date()): boolean {
 /** Types the night never starts: new capability is a daytime decision. */
 const DAYTIME_ONLY = new Set(["feature", "epic", "story"]);
 
-export function nightEligible(tickets: Ticket[]): Ticket[] {
+/**
+ * @param wrapUpAt when today's working day ended. Anything filed after it was
+ * filed by tonight's workers, and starting it is how one night-worker becomes
+ * nine by morning. Those wait for the plan-day, where Jaime sees them.
+ */
+export function nightEligible(tickets: Ticket[], wrapUpAt?: Date): Ticket[] {
   return tickets
     .filter((t) => {
       const meta = (t.metadata ?? {}) as Record<string, unknown>;
       if (meta.plan_gate === true || meta.planning_path === "architectural") return false;
+      if (wrapUpAt) {
+        const created = t.created_at ? new Date(t.created_at) : null;
+        if (!created || isNaN(created.getTime()) || created >= wrapUpAt) return false;
+      }
       return !DAYTIME_ONLY.has((t.issue_type ?? "task").toLowerCase());
     })
     .sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9));
@@ -35,6 +44,13 @@ export type NightDeps = {
   park: (cfg: AmbrosioConfig, repo: string, ticket: string) => void;
   dispatch: (cfg: AmbrosioConfig, repo: string, ticket: string) => void;
   journal: (cfg: AmbrosioConfig, line: string) => void;
+  /** WIP slots held right now, as the board reconciles them — never the raw daemon state. */
+  busy?: (cfg: AmbrosioConfig) => number;
+  /** When today's working day ended; tickets filed after it are not the night's to start. */
+  wrapUpAt?: (cfg: AmbrosioConfig) => Date;
+  /** Tickets this night has already started, whether or not they are still running. */
+  startedTonight?: (cfg: AmbrosioConfig) => string[];
+  recordStart?: (cfg: AmbrosioConfig, ticket: string) => void;
 };
 
 export function afterHoursPass(
@@ -58,15 +74,25 @@ export function afterHoursPass(
     }
   }
 
-  const stillBusy = workers.filter((a) => a.state === "working" && !parked.includes(a.name ?? "")).length;
+  const stillBusy = deps.busy
+    ? Math.max(0, deps.busy(cfg) - parked.length)
+    : workers.filter((a) => a.state === "working" && !parked.includes(a.name ?? "")).length;
   const free = Math.max(0, cfg.wipLimit - stillBusy);
 
+  // Two ceilings: the slots free right now, and how much a whole night may
+  // start at all. The second is the one that keeps the morning readable —
+  // without it every finished worker frees a slot that starts another.
+  const already = deps.startedTonight?.(cfg) ?? [];
+  const budget = Math.max(0, cfg.wipLimit - already.length);
+
   const dispatched: string[] = [];
-  for (const ticket of nightEligible(deps.ready(cfg))) {
-    if (dispatched.length >= free) break;
+  for (const ticket of nightEligible(deps.ready(cfg), deps.wrapUpAt?.(cfg))) {
+    if (dispatched.length >= free || dispatched.length >= budget) break;
+    if (already.includes(ticket.id)) continue;
     try {
       deps.dispatch(cfg, ticket.repo ?? "", ticket.id);
-      deps.journal(cfg, `after hours: started ${ticket.id} (${ticket.title})`);
+      deps.recordStart?.(cfg, ticket.id);
+      deps.journal(cfg, `after hours: started ${ticket.id} (${ticket.title}) — ${already.length + dispatched.length + 1}/${cfg.wipLimit} for the night`);
       dispatched.push(ticket.id);
     } catch (e) {
       // One ticket that will not start is not a reason to stop for the night.

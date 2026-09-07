@@ -23,7 +23,7 @@ import { canDispatch, wipUsed } from "./board.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "8";
+export const UI_VERSION = "9";
 
 export type UiWorker = {
   id?: string;

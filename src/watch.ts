@@ -1,7 +1,8 @@
-import type { AmbrosioConfig } from "./config.ts";
+import { hhmm, type AmbrosioConfig } from "./config.ts";
 import type { InboundMessage } from "./inbox.ts";
 import { parseReplies, type Reply } from "./replies.ts";
 import { isPaused, pause as setPause, resume as clearPause } from "./pause.ts";
+import { nightKey, readNight, recordStart } from "./night.ts";
 
 export type Action =
   | { kind: "answered"; qid: string; ticket: string; delivery: "resumed" | "deferred" }
@@ -278,9 +279,21 @@ export function onePass(
 }
 
 export function realNightDeps(): NightDeps {
+  const wrapUpAt = (cfg: AmbrosioConfig, now = new Date()) => {
+    const mins = hhmm(cfg.hours.wrapUp);
+    const d = new Date(now);
+    if (d.getHours() * 60 + d.getMinutes() < mins) d.setDate(d.getDate() - 1);
+    d.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+    return d;
+  };
+  const key = (cfg: AmbrosioConfig) => nightKey(new Date(), hhmm(cfg.hours.wrapUp));
   return {
     workers: () => agents.workers(),
     ready: (cfg) => collectBoard(cfg).ready,
+    busy: (cfg) => collectBoard(cfg).working.length,
+    wrapUpAt,
+    startedTonight: (cfg) => readNight(cfg.homeDir, key(cfg)).started,
+    recordStart: (cfg, ticket) => { recordStart(cfg.homeDir, key(cfg), ticket); },
     repoOf: (cfg, ticket) => collectBoard(cfg).all.find((t) => t.id === ticket)?.repo ?? "",
     stop: (id) => agents.stop(id),
     park: (cfg, repo, ticket) => {

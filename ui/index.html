@@ -74,6 +74,11 @@
   .blocked .state { color: var(--blocked); }
   .state .silent { color: var(--failed); }
   .failed  .state { color: var(--failed); }
+  .stale   .state { color: var(--failed); }
+  .folded { margin-top: 12px; }
+  .folded summary { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); padding: 6px 0; }
+  .folded .grid { margin-top: 8px; opacity: .7; }
+  #stats .paused { color: var(--failed); font-weight: 700; letter-spacing: .08em; }
   .title { margin-top: 3px; }
   .meta { margin-top: 6px; font-size: 12px; color: var(--dim); display: flex; gap: 12px; flex-wrap: wrap; }
   .detail { margin-top: 6px; font-size: 12px; color: var(--dim); border-left: 2px solid var(--line); padding-left: 8px; }
@@ -230,7 +235,7 @@
 
 <script src="/butler.js"></script>
 <script>
-const UI_VERSION = "8";        // must match UI_VERSION in src/ui.ts
+const UI_VERSION = "9";        // must match UI_VERSION in src/ui.ts
 const answers = {};            // qid -> draft text, kept across re-renders
 const said = {};               // qid -> what happened when we sent it
 let lastQSig = null;           // questions panel is only rebuilt when it changes
@@ -253,8 +258,10 @@ function tokens(n) {
 
 function render(d) {
   $("stats").innerHTML =
+    (d.paused ? `<span class="paused">PAUSED</span>` : "") +
     `<span>wip <b>${d.wip.used}/${d.wip.limit}</b></span>` +
-    `<span>workers <b>${d.workers.length}</b></span>` +
+    `<span>workers <b>${d.workers.filter((w) => !["stopped", "done"].includes(w.state)).length}</b></span>` +
+    `<span>parked <b>${d.workers.filter((w) => ["stopped", "done"].includes(w.state)).length}</b></span>` +
     `<span>needs you <b>${d.questions.length + d.plans.length + d.accept.length}</b></span>` +
     (d.tokensToday ? `<span>today <b>${tokens(d.tokensToday)}</b></span>` : "");
 
@@ -314,11 +321,15 @@ function render(d) {
     if (el) { el.textContent = msg; el.className = "said" + (msg.startsWith("!") ? " bad" : ""); }
   }
 
-  // Blocked first: those are the ones costing you time.
-  const order = { blocked: 0, failed: 1, working: 2, stopped: 3, done: 4 };
-  const workers = [...d.workers].sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9));
-  $("workers").innerHTML = workers.length
-    ? `<div class="grid">${workers.map((w) => `
+  // Blocked first: those are the ones costing you time. Parked and finished
+  // sessions fold away below — the view is for what is happening, and a
+  // morning that opens on nine cards, seven of them dead, is a morning wasted.
+  const order = { blocked: 0, failed: 1, stale: 2, working: 3, stopped: 4, done: 5 };
+  const sorted = [...d.workers].sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9));
+  const isLive = (w) => !["stopped", "done"].includes(w.state);
+  const live = sorted.filter(isLive);
+  const folded = sorted.filter((w) => !isLive(w));
+  const card = (w) => `
         <div class="panel card ${esc(w.state)}${selected === (w.id || w.name) ? " open" : ""}" data-id="${esc(w.id || w.name)}">
           <div class="top">
             <span class="dot"></span>
@@ -337,8 +348,10 @@ function render(d) {
           ${w.detail ? `<div class="detail">${esc(w.detail)}</div>` : ""}
           ${w.ticketStatus ? `<canvas class="stage" width="150" height="34" data-status="${esc(w.ticketStatus)}"></canvas>
           <div class="stagenow ${stageOf(w.ticketStatus).parked ? "parked" : ""}">${stageCaption(w.ticketStatus)}</div>` : ""}
-        </div>`).join("")}</div>`
-    : '<div class="panel empty">No workers running.</div>';
+        </div>`;
+  $("workers").innerHTML =
+    (live.length ? `<div class="grid">${live.map(card).join("")}</div>` : '<div class="panel empty">No workers running.</div>') +
+    (folded.length ? `<details class="folded"><summary>${folded.length} parked or finished</summary><div class="grid">${folded.map(card).join("")}</div></details>` : "");
 
   // Each worker shows where its ticket stands, with the butler on the track.
   for (const c of document.querySelectorAll("canvas.stage")) drawStageTrack(c, c.dataset.status);

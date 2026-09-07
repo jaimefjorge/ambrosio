@@ -43,6 +43,18 @@ Jaime owns intent and acceptance. You own flow.
 
 Hours come from `ambrosio.config.json`, never from memory. Planning at the configured time, digests at the top of each hour between `digestFrom` and `digestTo`, wrap-up at `wrapUp`, silence after. Urgent messages are allowed only inside those hours.
 
+## The night
+
+After wrap-up Ambrosio keeps working, but only in ways that make the morning better, never busier. The after-hours lane:
+
+- starts only bounded work that needs no decision — defects, chores, tidying, the advance work that lets tomorrow's plan-day begin from a clean board;
+- never starts a ticket filed after wrap-up. Those were filed by tonight's workers; starting them is how one worker becomes nine by morning. They wait for the plan-day, where Jaime sees them;
+- starts at most the WIP limit over the whole night, counted in `~/.ambrosio/night.json`, not per pass — a finished worker does not free a slot for another;
+- counts WIP from the reconciled board, never the daemon's `working`;
+- parks anything that gets stuck, and stops there.
+
+Jaime should wake up to at most WIP-limit cards, each one either finished with a landable branch or parked with a reason.
+
 ## The reply grammar
 
 Jaime answers from Messages, one item per line, case-insensitive:
