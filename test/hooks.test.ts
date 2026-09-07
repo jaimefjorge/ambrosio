@@ -242,6 +242,42 @@ test("ordinary git work is still allowed", () => {
   expect(denied("git push origin worktree-gmc-4or")).toBe(false);
 }, HOOK_TIMEOUT);
 
+// --- The machine's global packages are not a worker's to remove -----------
+// gmc-szb, 2026-09-07: a harness left Jaime's machine without its global
+// `verity` binary while npm still believed the package was installed.
+
+test("a worker may not remove a global npm package", () => {
+  expect(denied("npm rm -g @codacy/verity-cli")).toBe(true);
+  expect(denied("npm uninstall -g @codacy/verity-cli")).toBe(true);
+  expect(denied("npm remove --global typescript")).toBe(true);
+  expect(denied("npm -g rm @codacy/verity-cli")).toBe(true);
+  expect(denied("npm unlink -g @codacy/verity-cli")).toBe(true);
+  expect(denied("pnpm remove -g eslint")).toBe(true);
+  expect(denied("yarn global remove eslint")).toBe(true);
+}, HOOK_TIMEOUT);
+
+test("a harness may still tear down a prefix it owns", () => {
+  // This is the exact teardown line from gatemd-core PR #156's migration
+  // harness. Blocking it would stop a legitimate run cleaning up after itself.
+  expect(denied('npm rm -g --prefix "$WORK/npm-global" @codacy/verity-cli')).toBe(false);
+  expect(denied('npm uninstall -g --prefix="$NPM_PREFIX" @codacy/verity-cli')).toBe(false);
+}, HOOK_TIMEOUT);
+
+test("--prefix pointed at the machine's own prefix is still the machine", () => {
+  // The flag is not a password. Scoping to the prefix npm would have used
+  // anyway is the machine-wide removal with an extra argument.
+  expect(denied('npm rm -g --prefix "$(npm prefix -g)" @codacy/verity-cli')).toBe(true);
+  expect(denied('npm rm -g --prefix="$(npm root -g)" @codacy/verity-cli')).toBe(true);
+}, HOOK_TIMEOUT);
+
+test("ordinary package work is untouched", () => {
+  expect(denied("npm ci")).toBe(false);
+  expect(denied("npm install -g @codacy/verity-cli")).toBe(false);
+  expect(denied("npm rm lodash")).toBe(false);
+  expect(denied("npm run lint")).toBe(false);
+  expect(denied("npm uninstall --save-dev tsx")).toBe(false);
+}, HOOK_TIMEOUT);
+
 // --- Nothing a worker runs may reach production ---------------------------
 
 test("a worker may not deploy, publish, or cut a release", () => {

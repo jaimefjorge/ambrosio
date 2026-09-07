@@ -66,4 +66,26 @@ if printf '%s' "$CMD" | grep -qE '\bgit[[:space:]]+tag\b[^|;&]*-[^|;&]*&&[^|;&]*
   deny "Blocked: pushing tags is how a release starts. That is Jaime's call."
 fi
 
+# The machine's own global npm packages are not a worker's to remove.
+#
+# gmc-szb, 2026-09-07: a harness took the global `verity` off Jaime's machine
+# and left the package installed, so `npm install -g` would have no-opped on
+# version rather than relinked. The mechanism there turned out to be a `mv` with
+# a symlink-blind restore rather than an uninstall — but the incident showed the
+# class has no floor at all, and Jaime's call was to put one here.
+#
+# `--prefix` is the exception, and it is the whole point: a harness that installs
+# into a prefix it created under $TMPDIR must be able to tear that down. What it
+# may not do is remove from whatever prefix the machine happens to have. The
+# second clause closes the obvious way back in — pointing `--prefix` at the
+# machine's own prefix is the machine-wide form wearing a flag.
+if printf '%s' "$CMD" | grep -qE '\b(npm|pnpm|bun)[[:space:]]+([^|;&]*[[:space:]])?(rm|r|un|uninstall|unlink|remove)\b[^|;&]*(-g|--global)\b' \
+  || printf '%s' "$CMD" | grep -qE '\b(npm|pnpm|bun)[[:space:]]+([^|;&]*[[:space:]])?(-g|--global)[[:space:]]+[^|;&]*\b(rm|r|un|uninstall|unlink|remove)\b' \
+  || printf '%s' "$CMD" | grep -qE '\byarn[[:space:]]+global[[:space:]]+remove\b'; then
+  if ! printf '%s' "$CMD" | grep -qE '\-\-prefix([=[:space:]])' \
+    || printf '%s' "$CMD" | grep -qE '\-\-prefix[=[:space:]][^|;&]*npm[[:space:]]+(prefix|root|bin)[[:space:]]+(-g|--global)'; then
+    deny "Blocked: removing a global npm package would reach outside this ticket and take a tool off Jaime's machine. Scope it to a prefix your run owns (npm rm -g --prefix \"\$WORK/npm-global\" <pkg>), and never to the machine's own prefix. If you are only writing this string into a file, use the Write tool — the guard reads the command, not your intent."
+  fi
+fi
+
 exit 0
