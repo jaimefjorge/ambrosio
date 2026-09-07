@@ -233,7 +233,9 @@ function render(d) {
   ]);
   if (qSig !== lastQSig) {
     lastQSig = qSig;
-    $("questions").innerHTML = d.questions.length
+    // Everything that waits on Jaime, not just parked questions.
+    const waiting = d.questions.length + d.plans.length + d.accept.length;
+    $("questions").innerHTML = waiting
     ? d.questions.map((q) => `
         <div class="q ${q.urgent ? "urgent" : ""}" data-qid="${esc(q.qid)}">
           <div><span class="key">${esc(q.key)}</span> ${esc(q.summary)}
@@ -245,7 +247,30 @@ function render(d) {
             <button class="send">send</button>
           </div>
           <div class="said" data-said="${esc(q.qid)}">${esc(said[q.qid] || "")}</div>
-        </div>`).join("")
+        </div>`)
+      .concat(d.plans.map((x) => `
+        <div class="q" data-decide="plan" data-ticket="${esc(x.id)}" data-repo="${esc(x.repo)}">
+          <div><span class="key">${esc(x.key)}</span> ${esc(x.title)}</div>
+          <div class="opts">${esc(x.repo)} ${esc(x.id)} — plan waiting for review</div>
+          <div class="answer">
+            <button class="go" data-kind="plan_ok">approve</button>
+            <input placeholder="or say what to change…">
+            <button class="go send" data-kind="plan_change">send back</button>
+          </div>
+          <div class="said" data-said="${esc(x.id)}">${esc(said[x.id] || "")}</div>
+        </div>`))
+      .concat(d.accept.map((x) => `
+        <div class="q" data-decide="accept" data-ticket="${esc(x.id)}" data-repo="${esc(x.repo)}">
+          <div><span class="key">${esc(x.key)}</span> ${esc(x.title)}</div>
+          <div class="opts">${esc(x.repo)} ${esc(x.id)} — finished, waiting for you to accept</div>
+          <div class="answer">
+            <button class="go send" data-kind="accept">accept</button>
+            <input placeholder="or say what is wrong…">
+            <button class="go" data-kind="reject">reject</button>
+          </div>
+          <div class="said" data-said="${esc(x.id)}">${esc(said[x.id] || "")}</div>
+        </div>`))
+      .join("")
       : '<div class="empty">Nothing waiting on you.</div>';
   }
   for (const [qid, msg] of Object.entries(said)) {
