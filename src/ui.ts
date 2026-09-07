@@ -61,7 +61,7 @@ export type UiQuestion = {
 };
 
 /** A plan to review, or finished work to accept: the other two things that wait on Jaime. */
-export type UiDecision = { key: string; id: string; repo: string; title: string; status: string; landable?: { ok: boolean; pr: { number: number; url: string } | null; reasons: string[] } };
+export type UiDecision = { key: string; id: string; repo: string; title: string; status: string; iteration?: number; landable?: { ok: boolean; pr: { number: number; url: string } | null; reasons: string[] } };
 
 export type UiPayload = {
   now: string;
@@ -134,7 +134,8 @@ export function buildPayload(cfg: AmbrosioConfig, board: Board): UiPayload {
   const decisions = (from: Record<string, any>): UiDecision[] =>
     Object.entries(from).map(([key, t]) => {
       const land = board.landable?.[t.id];
-      return { key, id: t.id, repo: t.repo ?? "", title: t.title, status: t.status, ...(land ? { landable: { ok: land.ok, pr: land.pr ? { number: land.pr.number, url: land.pr.url } : null, reasons: land.reasons } } : {}) };
+      const round = board.iterations?.[t.id];
+      return { key, id: t.id, repo: t.repo ?? "", title: t.title, status: t.status, ...(round ? { iteration: round } : {}), ...(land ? { landable: { ok: land.ok, pr: land.pr ? { number: land.pr.number, url: land.pr.url } : null, reasons: land.reasons } } : {}) };
     });
 
   return {

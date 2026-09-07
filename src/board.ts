@@ -9,6 +9,7 @@ import { duration, type BoardState } from "./digest.ts";
 import { readPause } from "./pause.ts";
 import { standing } from "./standing.ts";
 import { landable as assessLandable, type Assessment } from "./landable.ts";
+import * as timeline from "./timeline.ts";
 
 export type Deps = {
   listTickets: (repo: { name: string; path: string; prefix: string }, statuses?: string[]) => Ticket[];
@@ -89,7 +90,10 @@ export function collectBoard(
   // "Work should always be in a mergeable state": the board asserts it per
   // ticket rather than leaving Jaime to open each PR and find out.
   const landableBy: Record<string, Assessment> = {};
+  const iterations: Record<string, number> = {};
   for (const t of accept) {
+    const n = timeline.iterationOf(timeline.read(cfg.homeDir, t.repo ?? "", t.id));
+    if (n > 0) iterations[t.id] = n;
     try {
       landableBy[t.id] = landable(cfg, t.repo ?? "", t.id);
     } catch (e) {
@@ -109,6 +113,7 @@ export function collectBoard(
     anomalies,
     stale,
     landable: landableBy,
+    iterations,
     paused: readPause(cfg.homeDir),
     instructions: standing(cfg.homeDir).map((e) => e.text),
     ready: all.filter((t) => t.status === "open"),

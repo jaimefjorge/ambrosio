@@ -149,3 +149,11 @@ test("ACCEPT says whether each piece of work is landable, and why not", () => {
   expect(out).toContain("PR #161 · not landable: unit pending; open defects: gmc-sz7");
   expect(out).toContain("PR #156 · landable");
 });
+
+test("ACCEPT says which round of rework a ticket is on, when it has been sent back before", () => {
+  const out = renderDigest(board({
+    accept: [t({ id: "gmc-axx", repo: "gatemd-core", title: "spinner tests" })],
+    iterations: { "gmc-axx": 2 },
+  })).join("\n");
+  expect(out).toContain("round 2");
+});

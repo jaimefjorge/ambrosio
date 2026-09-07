@@ -7,6 +7,7 @@ import type { Ticket } from "./tracker.ts";
 import * as agents from "./agents.ts";
 import * as journal from "./journal.ts";
 import { readPause } from "./pause.ts";
+import * as timeline from "./timeline.ts";
 import * as queue from "./queue.ts";
 import { recentLessons } from "./review.ts";
 
@@ -124,6 +125,7 @@ export function dispatchTicket(
     startedAt: new Date().toISOString(),
   });
   journal.append(cfg.homeDir, `dispatched ${repo.name} ${ticket.id} (${ticket.title}) as session ${result.id}`);
+  timeline.record(cfg.homeDir, repo.name, ticket.id, { kind: "dispatched", by: "ambrosio", note: `session ${result.id}`, iteration: timeline.iterationOf(timeline.read(cfg.homeDir, repo.name, ticket.id)) });
 
   return { ...result, promptPath };
 }

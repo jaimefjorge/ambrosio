@@ -4,11 +4,13 @@ import { repoByName, type AmbrosioConfig } from "./config.ts";
 import * as tracker from "./tracker.ts";
 import * as journal from "./journal.ts";
 import { landable, type Assessment } from "./landable.ts";
+import * as timeline from "./timeline.ts";
+import type { TimelineEvent } from "./timeline.ts";
 import { deliverAnswer } from "./dispatch.ts";
 
 export class DecideError extends Error {}
 
-export type Outcome = "closed" | "resumed" | "deferred" | "no_worker";
+export type Outcome = "closed" | "resumed" | "deferred" | "no_worker" | "escalated";
 
 /** Feedback that could not be handed over yet, kept until it can be. */
 export type Pending = { ticket: string; repo: string; text: string; at: string };
@@ -79,6 +81,9 @@ export type DecideDeps = {
   openDefects: (cfg: AmbrosioConfig, repo: string, ticket: string) => { id: string; title: string }[];
   /** Could Jaime merge this right now? PR, checks, Verity, defects — every reason at once. */
   landable?: (cfg: AmbrosioConfig, repo: string, ticket: string) => Assessment;
+  /** The ticket's timeline, for counting rounds. */
+  history?: (cfg: AmbrosioConfig, repo: string, ticket: string) => TimelineEvent[];
+  record?: (cfg: AmbrosioConfig, repo: string, ticket: string, ev: Omit<TimelineEvent, "at">) => void;
 };
 
 export const realDecideDeps: DecideDeps = {
@@ -89,7 +94,28 @@ export const realDecideDeps: DecideDeps = {
   journal: (cfg, line) => journal.append(cfg.homeDir, line),
   openDefects: (cfg, repo, ticket) => tracker.openDefects(repoByName(cfg, repo), ticket),
   landable: (cfg, repo, ticket) => landable(cfg, repo, ticket),
+  history: (cfg, repo, ticket) => timeline.read(cfg.homeDir, repo, ticket),
+  record: (cfg, repo, ticket, ev) => { timeline.record(cfg.homeDir, repo, ticket, ev); },
 };
+
+/** What each earlier round asked for, oldest first, for the worker and for Jaime. */
+function rounds(events: TimelineEvent[], kind: "rejected" | "plan_change"): string[] {
+  return events.filter((e) => e.kind === kind).map((e) => `${kind === "rejected" ? "Round" : "Plan round"} ${e.iteration ?? "?"}: ${e.note ?? ""}`);
+}
+
+/**
+ * The brief for a round of rework. The rejection is the round's acceptance
+ * delta: each point addressed by name, and the reviewer re-checks those
+ * points against the new diff rather than re-reading everything.
+ */
+export function reworkBrief(n: number, note: string, earlier: string[]): string {
+  return [
+    `Round ${n}. Jaime rejected the hand-over: ${note}`,
+    "",
+    "Treat that as this round's acceptance criteria. Address each point explicitly. When you hand over again, list every point and say for each whether it is addressed, and if not, why. Your reviewer subagent must re-check those points against the new diff, and its verdict goes in evidence.md under a heading for this round.",
+    earlier.length ? `\nEarlier rounds, so nothing regresses:\n${earlier.map((e) => `- ${e}`).join("\n")}` : "",
+  ].filter((l) => l !== "").join("\n");
+}
 
 /**
  * Apply one of Jaime's decisions about a plan or a finished piece of work.
@@ -99,7 +125,8 @@ export const realDecideDeps: DecideDeps = {
  * each one out — so the CLI, the watcher and the fleet view now share this.
  */
 function describe(o: Outcome): string {
-  return o === "resumed" ? "the worker picked it up"
+  return o === "escalated" ? "escalated to Jaime, not re-dispatched"
+    : o === "resumed" ? "the worker picked it up"
     : o === "deferred" ? "worker busy, kept for the next pass"
     : "no live worker, it needs dispatching again";
 }
@@ -125,7 +152,7 @@ export function applyDecision(
   cfg: AmbrosioConfig,
   d: Decision,
   deps: DecideDeps = realDecideDeps,
-): { ticket: string; outcome: Outcome } {
+): { ticket: string; outcome: Outcome; iteration?: number } {
   repoByName(cfg, d.repo);  // throws before anything is written
   const note = d.note?.trim();
 
@@ -157,22 +184,46 @@ export function applyDecision(
         defects.length > 0 ? `over ${defects.length} open defect${defects.length > 1 ? "s" : ""}` : "",
         land && !land.ok ? `not landable (${land.reasons.join("; ")})` : "",
       ].filter(Boolean).map((x) => ` ${x}`).join(",");
+      deps.record?.(cfg, d.repo, d.ticket, { kind: "accepted", by: "jaime", note: `${note ?? ""}${over}`.trim() || undefined, pr: land?.pr?.number });
       deps.close(cfg, d.repo, d.ticket, `accepted by Jaime${over}${note ? `: ${note}` : ""}`);
       deps.journal(cfg, `${d.ticket} accepted and closed${over}${note ? ` (${note})` : ""}`);
       return { ticket: d.ticket, outcome: "closed" };
     }
 
     case "reject": {
-      const text = `Jaime rejected: ${note}`;
+      const history = deps.history?.(cfg, d.repo, d.ticket) ?? [];
+      const earlier = rounds(history, "rejected");
+      const n = earlier.length + 1;
+      const cap = cfg.maxIterations ?? 3;
+      if (n > cap) {
+        // Three rounds in and still bouncing: the ticket is the problem, not
+        // the worker. Stop re-dispatching and put it in front of Jaime with
+        // every round's ask, so the plan-day can rewrite it.
+        const text = [
+          `Bounced ${earlier.length} times; not re-dispatching. The ticket itself is probably underspecified. What each round asked for:`,
+          ...earlier.map((e) => `- ${e}`),
+          `- Round ${n}: ${note}`,
+          "Rewrite the acceptance criteria, or say which round's ask should win, then dispatch again.",
+        ].join("\n");
+        deps.comment(cfg, d.repo, d.ticket, text);
+        deps.transition(cfg, d.repo, d.ticket, "needs_input");
+        deps.record?.(cfg, d.repo, d.ticket, { kind: "rejected", iteration: n, note, by: "jaime" });
+        deps.record?.(cfg, d.repo, d.ticket, { kind: "escalated", iteration: n, note: `bounced ${earlier.length} times`, by: "ambrosio" });
+        deps.journal(cfg, `${d.ticket} rejected a ${n}th time (${note}) — escalated, needs a rewrite, not another round`);
+        return { ticket: d.ticket, outcome: "escalated", iteration: n };
+      }
+      const text = `Jaime rejected (round ${n}): ${note}`;
       deps.comment(cfg, d.repo, d.ticket, text);
       deps.transition(cfg, d.repo, d.ticket, "in_progress");
-      const outcome = handOver(cfg, deps, d.ticket, d.repo, text);
-      deps.journal(cfg, `${d.ticket} rejected (${note}) — ${describe(outcome)}`);
-      return { ticket: d.ticket, outcome };
+      deps.record?.(cfg, d.repo, d.ticket, { kind: "rejected", iteration: n, note, by: "jaime" });
+      const outcome = handOver(cfg, deps, d.ticket, d.repo, reworkBrief(n, note!, earlier));
+      deps.journal(cfg, `${d.ticket} rejected, round ${n} (${note}) — ${describe(outcome)}`);
+      return { ticket: d.ticket, outcome, iteration: n };
     }
 
     case "plan_ok": {
       deps.comment(cfg, d.repo, d.ticket, "Jaime approved the plan");
+      deps.record?.(cfg, d.repo, d.ticket, { kind: "plan_ok", by: "jaime", note });
       deps.transition(cfg, d.repo, d.ticket, "in_progress");
       const outcome = handOver(cfg, deps, d.ticket, d.repo, "Jaime approved the plan. Carry on and implement it.");
       deps.journal(cfg, `${d.ticket} plan approved — ${describe(outcome)}`);
@@ -180,12 +231,21 @@ export function applyDecision(
     }
 
     case "plan_change": {
-      const text = `Jaime asked for changes: ${note}`;
+      const history = deps.history?.(cfg, d.repo, d.ticket) ?? [];
+      const earlier = rounds(history, "plan_change");
+      const n = earlier.length + 1;
+      const text = `Jaime asked for changes (plan round ${n}): ${note}`;
       deps.comment(cfg, d.repo, d.ticket, text);
       deps.transition(cfg, d.repo, d.ticket, "planning");
-      const outcome = handOver(cfg, deps, d.ticket, d.repo, text);
-      deps.journal(cfg, `${d.ticket} plan sent back (${note}) — ${describe(outcome)}`);
-      return { ticket: d.ticket, outcome };
+      deps.record?.(cfg, d.repo, d.ticket, { kind: "plan_change", iteration: n, note, by: "jaime" });
+      const brief = [
+        `Plan round ${n}. Jaime asked for changes: ${note}`,
+        "Revise plan.md to address each point, keep what he did not object to, and stop at plan_review again.",
+        earlier.length ? `Earlier plan rounds:\n${earlier.map((e) => `- ${e}`).join("\n")}` : "",
+      ].filter(Boolean).join("\n");
+      const outcome = handOver(cfg, deps, d.ticket, d.repo, brief);
+      deps.journal(cfg, `${d.ticket} plan sent back, round ${n} (${note}) — ${describe(outcome)}`);
+      return { ticket: d.ticket, outcome, iteration: n };
     }
   }
 }

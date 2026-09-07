@@ -4,6 +4,7 @@ import { parseReplies, type Reply } from "./replies.ts";
 import { isPaused, pause as setPause, resume as clearPause } from "./pause.ts";
 import { nightKey, readNight, recordStart } from "./night.ts";
 import { autolinkPass, realAutolinkDeps } from "./autolink.ts";
+import * as timeline from "./timeline.ts";
 
 export type Action =
   | { kind: "answered"; qid: string; ticket: string; delivery: "resumed" | "deferred" }
@@ -45,6 +46,8 @@ export type WatchDeps = {
   night?: (cfg: AmbrosioConfig) => { parked: string[]; dispatched: string[] };
   /** Link defects a worker filed without saying where they came from. */
   autolink?: (cfg: AmbrosioConfig) => { linked: { child: string; parent: string }[] };
+  /** Record status changes workers made on their own since the last pass. */
+  observe?: (cfg: AmbrosioConfig) => unknown[];
 };
 
 /**
@@ -231,6 +234,7 @@ export function realDeps(): WatchDeps {
     notify: (cfg) => notifyPass(cfg, realNotifyDeps()),
     night: (cfg) => afterHoursPass(cfg, realNightDeps()),
     autolink: (cfg) => autolinkPass(cfg, realAutolinkDeps()),
+    observe: (cfg) => timeline.observe(cfg, collectBoard(cfg).all),
 
     wake: (cfg) => {
       const now = Date.now();
@@ -273,6 +277,8 @@ export function onePass(
   // hand-over waits for the worker to park just as an answer does.
   const feedback = paused ? [] : (deps.deliverFeedback?.(cfg) ?? []);
   const handled = drain(cfg, deps);
+  // The timeline sees what workers did to their own tickets since last pass.
+  deps.observe?.(cfg);
   // Orphaned defects are what rule 4 cannot see; link them before anything
   // downstream reads the board.
   if (!paused) deps.autolink?.(cfg);

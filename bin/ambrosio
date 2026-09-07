@@ -194,7 +194,7 @@ switch (cmd) {
         working: board.working.map((w) => ({ ticket: w.ticket?.id, repo: w.ticket?.repo, agent: w.agent.name ?? w.agent.id, state: w.agent.state, detail: w.agent.detail })),
         stale: board.stale.map((s) => ({ ticket: s.ticket?.id, repo: s.ticket?.repo, ticketStatus: s.ticket?.status, agent: s.agent.name ?? s.agent.id, silentMinutes: s.silentMinutes })),
         plans: board.plans.map((t) => ({ id: t.id, repo: t.repo, title: t.title })),
-        accept: board.accept.map((t) => ({ id: t.id, repo: t.repo, title: t.title, metadata: t.metadata, landable: board.landable[t.id] ?? null })),
+        accept: board.accept.map((t) => ({ id: t.id, repo: t.repo, title: t.title, metadata: t.metadata, landable: board.landable[t.id] ?? null, iteration: board.iterations?.[t.id] ?? 0 })),
         needsInput: board.needsInput.map((t) => ({ id: t.id, repo: t.repo, title: t.title })),
         blocked: board.blocked.map((t) => ({ id: t.id, repo: t.repo, title: t.title })),
         questions: board.questions.map((q) => ({ qid: q.qid, ticket: q.ticket, repo: q.repo, urgent: q.urgent, question: queue.summarize(q), options: queue.optionLabels(q) })),

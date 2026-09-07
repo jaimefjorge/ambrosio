@@ -3,6 +3,7 @@ import type { AmbrosioConfig } from "./config.ts";
 import { repoByName } from "./config.ts";
 import * as tracker from "./tracker.ts";
 import * as journal from "./journal.ts";
+import * as timeline from "./timeline.ts";
 import type { Ticket } from "./tracker.ts";
 
 /**
@@ -23,6 +24,7 @@ export type AutolinkDeps = {
   link: (cfg: AmbrosioConfig, repo: string, child: string, parent: string) => void;
   setPriority: (cfg: AmbrosioConfig, repo: string, ticket: string, priority: number) => void;
   journal: (cfg: AmbrosioConfig, line: string) => void;
+  record?: (cfg: AmbrosioConfig, repo: string, ticket: string, ev: { kind: string; note?: string; by?: string }) => void;
 };
 
 /** Tickets whose worker could have filed something. */
@@ -55,6 +57,7 @@ export function autolinkPass(cfg: AmbrosioConfig, deps: AutolinkDeps): { linked:
         deps.link(cfg, repo.name, child.id, parent.id);
         if ((child.priority ?? 9) > (parent.priority ?? 9)) deps.setPriority(cfg, repo.name, child.id, parent.priority);
         deps.journal(cfg, `autolink: ${child.id} discovered-from ${parent.id} (filed while it was the only worker running)`);
+        deps.record?.(cfg, repo.name, parent.id, { kind: "defect_linked", note: `${child.id}: ${child.title}`, by: "ambrosio" });
         linked.push({ child: child.id, parent: parent.id });
       } catch (e) {
         deps.journal(cfg, `autolink: could not link ${child.id} to ${parent.id}: ${(e as Error).message}`);
@@ -76,5 +79,6 @@ export function realAutolinkDeps(): AutolinkDeps {
     link: (cfg, repo, child, parent) => tracker.addDep(repoByName(cfg, repo), child, parent, "discovered-from"),
     setPriority: (cfg, repo, ticket, p) => tracker.setPriority(repoByName(cfg, repo), ticket, p),
     journal: (cfg, line) => journal.append(cfg.homeDir, line),
+    record: (cfg, repo, ticket, ev) => { timeline.record(cfg.homeDir, repo, ticket, ev as any); },
   };
 }

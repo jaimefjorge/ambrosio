@@ -516,7 +516,8 @@ async function sendDecision(row, kind) {
     const res = await r.json();
     if (!r.ok || res.error) throw new Error(res.error || "failed");
     said[id] = res.outcome === "closed" ? `accepted — ${id} closed`
-             : res.outcome === "resumed" ? `sent — ${id} picked it up`
+             : res.outcome === "escalated" ? `bounced ${res.iteration - 1} times — ${id} is now waiting for you to rewrite it, not for another round`
+             : res.outcome === "resumed" ? `sent — ${id} picked it up${res.iteration ? ` (round ${res.iteration})` : ""}`
              : res.outcome === "deferred" ? `sent — ${id} is mid-turn; it will get this as soon as it parks`
              : `sent — ${id} has no live worker, so it needs dispatching again`;
     input.value = "";

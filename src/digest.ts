@@ -21,6 +21,8 @@ export type BoardState = {
   paused?: Pause | null;
   /** Standing instructions from the dialog, still in force. */
   instructions?: string[];
+  /** For tickets in `accept`: how many times each has been sent back. */
+  iterations?: Record<string, number>;
   /** For tickets in `accept`: could Jaime merge each one right now. */
   landable?: Record<string, { ok: boolean; pr: { number: number } | null; reasons: string[] }>;
 };
@@ -113,7 +115,9 @@ export function renderDigest(board: BoardState): string[] {
     for (const [key, t] of Object.entries(keys.accept)) {
       lines.push(`${key} ${ticketLabel(t)}`);
       const land = board.landable?.[t.id];
+      const round = board.iterations?.[t.id] ?? 0;
       const bits = [
+        round > 0 ? `round ${round}` : null,
         land?.pr ? `PR #${land.pr.number}` : t.metadata?.pr ? `PR ${t.metadata.pr}` : null,
         land ? (land.ok ? "landable" : `not landable: ${land.reasons.join("; ")}`) : null,
         t.metadata?.tests ? `tests ${t.metadata.tests}` : null,

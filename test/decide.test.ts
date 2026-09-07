@@ -38,11 +38,9 @@ describe("applyDecision", () => {
     const r = applyDecision(cfg, { kind: "reject", ...at, note: "the migration path is untested" }, deps);
 
     expect(r.outcome).toBe("resumed");
-    expect(log.slice(0, 3)).toEqual([
-      "comment:gmc-4or:Jaime rejected: the migration path is untested",
-      "status:gmc-4or:in_progress",
-      "resume:gmc-4or:Jaime rejected: the migration path is untested",
-    ]);
+    expect(log[0]).toBe("comment:gmc-4or:Jaime rejected (round 1): the migration path is untested");
+    expect(log[1]).toBe("status:gmc-4or:in_progress");
+    expect(log[2]).toContain("resume:gmc-4or:Round 1. Jaime rejected the hand-over: the migration path is untested");
     // The journal says what actually happened to the hand-over.
     expect(log[3]).toContain("the worker picked it up");
   });
@@ -66,7 +64,7 @@ describe("applyDecision", () => {
     applyDecision(cfg, { kind: "plan_change", ...at, note: "split the migration" }, deps);
 
     expect(log).toContain("status:gmc-4or:planning");
-    expect(log).toContain("resume:gmc-4or:Jaime asked for changes: split the migration");
+    expect(log.find((l) => l.startsWith("resume:"))).toContain("Plan round 1. Jaime asked for changes: split the migration");
   });
 
   test("a decision needing the worker says so when the worker is gone, rather than pretending", () => {
@@ -100,7 +98,9 @@ describe("feedback that could not be handed over", () => {
     const r = applyDecision(c, { kind: "reject", ...at, note: "push to experimental" }, deps);
 
     expect(r.outcome).toBe("deferred");
-    expect(pendingFeedback(c).map((p) => [p.ticket, p.text])).toEqual([["gmc-4or", "Jaime rejected: push to experimental"]]);
+    const kept = pendingFeedback(c);
+    expect(kept.map((p) => p.ticket)).toEqual(["gmc-4or"]);
+    expect(kept[0].text).toContain("Round 1. Jaime rejected the hand-over: push to experimental");
   });
 
   test("it is handed over on a later pass, then forgotten", () => {
@@ -188,4 +188,62 @@ test("Jaime can overrule it deliberately, and the journal says he did", () => {
   applyDecision(cfg, { kind: "accept", ...at, force: true }, deps);
   expect(log.some((l) => l.startsWith("close"))).toBe(true);
   expect(log.join(" ")).toContain("not landable");
+});
+
+// --- Reject is a cycle, not a dead end ------------------------------------------
+// A rejection creates a numbered round with the rejection as its delta; the
+// worker must address each point; past the cap, Ambrosio stops re-dispatching
+// and says the ticket itself may be the problem.
+
+const withHistory = (events: any[], over: Partial<DecideDeps> = {}) => {
+  const recorded: any[] = [];
+  const r = spy({
+    history: () => events,
+    record: (_c, _r, _t, ev) => recorded.push(ev),
+    ...over,
+  });
+  return { ...r, recorded };
+};
+
+test("the first rejection opens round 1 and tells the worker exactly what to address", () => {
+  const { deps, log, recorded } = withHistory([]);
+  const r = applyDecision(cfg, { kind: "reject", ...at, note: "needs a test for empty input" }, deps);
+  expect(r.outcome).toBe("resumed");
+  expect(r.iteration).toBe(1);
+  const resume = log.find((l) => l.startsWith("resume:"))!;
+  expect(resume).toContain("Round 1");
+  expect(resume).toContain("needs a test for empty input");
+  expect(resume).toMatch(/address each point/i);
+  expect(resume).toMatch(/reviewer/i);
+  expect(recorded[0]).toMatchObject({ kind: "rejected", iteration: 1, note: "needs a test for empty input" });
+});
+
+test("a second rejection is round 2, and carries what round 1 asked for", () => {
+  const { deps, log } = withHistory([{ kind: "rejected", iteration: 1, note: "needs a test for empty input" }, { kind: "status", status: "in_review" }]);
+  const r = applyDecision(cfg, { kind: "reject", ...at, note: "the test does not cover null" }, deps);
+  expect(r.iteration).toBe(2);
+  const resume = log.find((l) => l.startsWith("resume:"))!;
+  expect(resume).toContain("Round 2");
+  expect(resume).toContain("Round 1: needs a test for empty input");
+});
+
+test("past the cap, the ticket is escalated instead of re-dispatched, with every round listed", () => {
+  const { deps, log, recorded } = withHistory([
+    { kind: "rejected", iteration: 1, note: "a" }, { kind: "rejected", iteration: 2, note: "b" }, { kind: "rejected", iteration: 3, note: "c" },
+  ]);
+  const r = applyDecision({ ...cfg, maxIterations: 3 } as any, { kind: "reject", ...at, note: "d" }, deps);
+  expect(r.outcome).toBe("escalated");
+  expect(log.some((l) => l.startsWith("resume:"))).toBe(false);
+  expect(log).toContain("status:gmc-4or:needs_input");
+  const comment = log.find((l) => l.startsWith("comment:"))!;
+  expect(comment).toMatch(/bounced/i);
+  for (const n of ["a", "b", "c", "d"]) expect(comment).toContain(n);
+  expect(recorded.some((e) => e.kind === "escalated")).toBe(true);
+});
+
+test("a plan sent back is a plan round, counted apart from rework", () => {
+  const { deps, log } = withHistory([{ kind: "plan_change", iteration: 1, note: "split step 3" }]);
+  const r = applyDecision(cfg, { kind: "plan_change", ...at, note: "and drop step 5" }, deps);
+  expect(r.iteration).toBe(2);
+  expect(log.find((l) => l.startsWith("resume:"))).toContain("Plan round 2");
 });

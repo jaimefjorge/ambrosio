@@ -8,6 +8,8 @@ export type Hours = { planning: string; digestFrom: string; digestTo: string; wr
 export type AmbrosioConfig = {
   repos: RepoConfig[];
   wipLimit: number;
+  /** Rounds of rework before a bounced ticket is escalated instead of re-dispatched. */
+  maxIterations: number;
   turnCap: number;
   hours: Hours;
   imessage: { handle: string };
@@ -77,6 +79,7 @@ export function loadConfig(path?: string, opts: LoadOptions = {}): AmbrosioConfi
   return {
     repos,
     wipLimit: raw.wipLimit ?? 3,
+    maxIterations: raw.maxIterations ?? 3,
     turnCap: raw.turnCap ?? 150,
     hours: { ...DEFAULT_HOURS, ...(raw.hours ?? {}) },
     imessage: { handle: raw.imessage?.handle ?? "" },
