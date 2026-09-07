@@ -85,3 +85,11 @@ describe("eventsFrom", () => {
     expect(() => eventsFrom([assistant([{ type: "text", text: "ok" }]), null as any])).not.toThrow();
   });
 });
+
+test("every event carries its timestamp, which the fleet view reads to show when it happened", () => {
+  const e = eventsFrom([
+    assistant([{ type: "tool_use", name: "Bash", input: { command: "bun test" } }], "2026-09-07T09:54:06.681Z"),
+    user([{ type: "tool_result", content: "ok" }], "2026-09-07T09:54:19.100Z"),
+  ]);
+  expect(e.map((x) => x.at)).toEqual(["2026-09-07T09:54:06.681Z", "2026-09-07T09:54:19.100Z"]);
+});

@@ -145,8 +145,12 @@
 
   .ev { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
   .ev:last-child { border-bottom: 0; }
-  .ev .k { flex: none; width: 74px; color: var(--dim); font-size: 11px; text-transform: uppercase;
+  .ev .ts { flex: none; width: 58px; color: var(--dim); font-size: 11px; padding-top: 1px;
+            font-variant-numeric: tabular-nums; }
+  .ev .k { flex: none; width: 66px; color: var(--dim); font-size: 11px; text-transform: uppercase;
            letter-spacing: .06em; padding-top: 1px; }
+  .gap { color: var(--blocked); font-size: 10px; margin-left: 6px; }
+  .since { text-transform: none; letter-spacing: 0; font-weight: 400; }
   .ev .v { white-space: pre-wrap; word-break: break-word; min-width: 0; }
   .ev.tool_use .v { color: var(--ink); }
   .ev.tool_use .k { color: var(--working); }
@@ -336,6 +340,20 @@ function evLabel(e) {
   return e.kind;
 }
 
+function clock(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d) ? "" : d.toTimeString().slice(0, 8);
+}
+
+/** "12s", "4m", "1h20" — short enough for a gutter. */
+function since(ms) {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return sec + "s";
+  if (sec < 3600) return Math.floor(sec / 60) + "m";
+  return Math.floor(sec / 3600) + "h" + String(Math.floor((sec % 3600) / 60)).padStart(2, "0");
+}
+
 function renderDetail(d) {
   $("d-name").textContent = d.worker.name || d.worker.id || "?";
   $("d-state").textContent = d.worker.state + (d.worker.needs ? " · " + d.worker.needs : "");
@@ -358,11 +376,24 @@ function renderDetail(d) {
         ${q.options.length ? `<br><span style="color:var(--dim)">${q.options.map(esc).join(" · ")}</span>` : ""}</div>`).join(""));
   }
 
-  parts.push('<div class="sub">Activity</div>');
-  parts.push(d.transcript.length
-    ? [...d.transcript].reverse().map((e) =>
+  // How long each step took is the thing that shows a worker is stuck, so the
+  // gap from the previous event is measured in order, before reversing.
+  const events = d.transcript.map((e, i) => {
+    const prev = d.transcript[i - 1];
+    const gap = prev && prev.at && e.at ? new Date(e.at) - new Date(prev.at) : 0;
+    return { ...e, gap };
+  });
+  const last = events.length ? events[events.length - 1].at : null;
+
+  parts.push('<div class="sub">Activity' +
+    (last ? ` <span class="since">— last step ${esc(since(Date.now() - new Date(last)))} ago</span>` : "") +
+    "</div>");
+
+  parts.push(events.length
+    ? [...events].reverse().map((e) =>
         `<div class="ev ${esc(e.kind)}${e.isError ? " err" : ""}">
-           <span class="k">${esc(evLabel(e))}</span>
+           <span class="ts">${esc(clock(e.at))}</span>
+           <span class="k">${esc(evLabel(e))}${e.gap >= 5000 ? `<span class="gap">+${esc(since(e.gap))}</span>` : ""}</span>
            <span class="v">${esc(e.summary)}</span>
          </div>`).join("")
     : '<div class="empty">No transcript for this session yet.</div>');

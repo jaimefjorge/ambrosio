@@ -87,7 +87,7 @@ what is not.
 
 ```sh
 bin/ambrosio setup     # generates machine-local config, initializes Beads
-bun test               # 140 tests
+bun test               # 141 tests
 ```
 
 ---
