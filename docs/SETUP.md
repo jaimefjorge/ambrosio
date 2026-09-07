@@ -31,23 +31,19 @@ cd ~/Workspace/ambrosio && claude --channels plugin:imessage@claude-plugins-offi
 /loop 60m /ambrosio-tick
 ```
 
-**Tab 3 — the watcher.** This is the part that talks to you, in both directions, and it runs without a model.
+**Tab 3 — Ambrosio itself.** One command runs the part that talks to you and the part you watch:
 
-Every few seconds it reads the Messages database and routes what you sent: `Q1 b` resumes the parked worker in about a second, `status` sends the digest, `T-4 defer` parks the ticket. It also hands over answers that were recorded while their worker was mid-turn, and it sends *outbound* on the same schedule the charter describes — at most one digest per clock hour, nothing at all outside working hours, nothing when there is nothing to decide, and an urgent question on its own if a digest already went out that hour.
+```sh
+cd ~/Workspace/ambrosio && bin/ambrosio start
+```
+
+That serves the fleet view on `127.0.0.1:4317` and runs the watcher in the same process. Nothing leaves the machine: the page is a local file whose only request goes back to that process.
+
+The watcher needs no model. Every few seconds it reads the Messages database and routes what you sent — `Q1 b` resumes the parked worker in about a second, `status` sends the digest, `T-4 defer` parks the ticket — and hands over answers recorded while their worker was mid-turn. It also sends *outbound* on the schedule the charter describes: at most one digest per clock hour, nothing at all outside working hours, nothing when there is nothing to decide, and an urgent question on its own if a digest already went out that hour.
 
 So notifications no longer depend on a live session. Tab 2 is still where the day gets planned, work gets dispatched and plans get reviewed; the watcher wakes it when a reply needs that judgment.
 
-```sh
-cd ~/Workspace/ambrosio && bin/ambrosio watch
-```
-
-**Tab 4 — the fleet view**, if you want to watch it rather than be told about it:
-
-```sh
-cd ~/Workspace/ambrosio && bin/ambrosio ui
-```
-
-It binds to `127.0.0.1:4317` and nothing leaves the machine: the page is a local file and its only request is back to that process. Blocked workers sort to the top, since those are the ones costing you time.
+`bin/ambrosio watch` and `bin/ambrosio ui` still run the halves separately if you want one without the other.
 
 Leave the watcher running. Accept the Messages automation prompt the first time it replies. Everything after this happens in Messages.
 

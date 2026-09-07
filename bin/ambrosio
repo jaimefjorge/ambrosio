@@ -34,6 +34,25 @@ function die(msg: string): never {
   process.exit(1);
 }
 
+/** One line per thing the watcher did, so a terminal left open tells the story. */
+function watchLogger() {
+  return (handled: { text: string; actions: { kind?: string }[] }[]) => {
+    for (const h of handled) {
+      const stamp = new Date().toLocaleTimeString();
+      const first = h.text.split("\n")[0].slice(0, 60);
+      // Notices (a digest going out, an answer handed over) carry no actions.
+      console.log(h.actions.length === 0 ? `${stamp}  ${first}`
+        : `${stamp}  "${first}" -> ${h.actions.map((a) => a.kind ?? "?").join(", ")}`);
+    }
+  };
+}
+
+function flagNumber(name: string, fallback: number): number {
+  const raw = argv.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 function cfg(): AmbrosioConfig {
   try {
     return loadConfig();
@@ -44,6 +63,7 @@ function cfg(): AmbrosioConfig {
 
 const HELP = `ambrosio — manager for Claude Code workers
 
+  start [--port] [--interval]  everything: the fleet view and the watcher, together
   setup                        check tools, create ~/.ambrosio, init beads in each repo
   status [--json]              the whole board: tickets, workers, parked questions
   queue [--json]               parked questions waiting for you
@@ -260,29 +280,33 @@ switch (cmd) {
     break;
   }
 
+  case "start": {
+    const c = cfg();
+    const port = flagNumber("port", 4317);
+    const secs = flagNumber("interval", 5);
+    const { port: bound } = serve(c, port);
+    console.log(`ambrosio: fleet view   http://127.0.0.1:${bound}`);
+    console.log(`ambrosio: watching     ${c.imessage.handle} every ${secs}s`);
+    console.log("ambrosio: replies route straight to the worker; digests go out on the hour. Ctrl-C to stop.");
+    await runWatch(c, { intervalMs: secs * 1000, onEvent: watchLogger() });
+    break;
+  }
+
   case "watch": {
     const c = cfg();
-    const secs = Number(argv.find((a) => a.startsWith("--interval="))?.split("=")[1] ?? 5);
+    const secs = flagNumber("interval", 5);
     console.log(`ambrosio: watching ${c.imessage.handle} every ${secs}s — answers route straight to the worker. Ctrl-C to stop.`);
-    await runWatch(c, {
-      intervalMs: secs * 1000,
-      onEvent: (handled) => {
-        for (const h of handled) {
-          const what = h.actions.map((a) => ("kind" in a ? a.kind : "?")).join(", ") || "nothing";
-          console.log(`${new Date().toLocaleTimeString()}  "${h.text.split("\n")[0].slice(0, 60)}" -> ${what}`);
-        }
-      },
-    });
+    await runWatch(c, { intervalMs: secs * 1000, onEvent: watchLogger() });
     break;
   }
 
   case "ui": {
     const c = cfg();
-    const port = Number(argv.find((a) => a.startsWith("--port="))?.split("=")[1] ?? 4317);
-    const { port: bound } = serve(c, port);
-    console.log(`ambrosio: fleet view on http://127.0.0.1:${bound} — local only. Ctrl-C to stop.`);
+    const { port } = serve(c, flagNumber("port", 4317));
+    console.log(`ambrosio: fleet view on http://127.0.0.1:${port} — local only. Ctrl-C to stop.`);
     break;
   }
+
 
   case "tick": {
     const c = cfg();

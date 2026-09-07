@@ -449,16 +449,17 @@ const SPRITES = {
   walk: ["........................", "........oooooooo........", "......oohhhhhhhhoo......", ".....ohhhhhhhhhhhho.....", "....ohhhhhHHHHhhhhho....", ".....ohhsssssssshho.....", ".....ohsseesseessho.....", ".....ohssssssssssho.....", ".....osssmmmmmmssso.....", ".....ossssddddsssso.....", "......oddddddddddo......", ".......owwwwwwwwo.......", "....occcccwoowccccco....", "...occccccCwwCcccccco...", "...occcccccwwccccccco...", "...occcccccccccccccco...", "...occcccccccccccccco...", "....occcccccccccccco....", "....occcc......cccco....", ".....occcc....cccco.....", "...oooooo......oooooo...", "........................", "........................", "........................"],
   bow: ["........................", "........................", "........................", "........oooooooo........", "......oohhhhhhhhoo......", ".....ohhhhhhhhhhhho.....", "....ohhhhhHHHHhhhhho....", ".....ohhsssssssshho.....", ".....ohsseesseessho.....", ".....ohssssssssssho.....", ".....osssmmmmmmssso.....", ".....ossssddddsssso.....", "......oddddddddddo......", ".......owwwwwwwwo.......", "....occcccwoowccccco....", "...occccccCwwCcccccco...", "...occcccccwwccccccco...", "...occcccccccccccccco...", "...occcccccccccccccco...", "....occcccccccccccco....", ".....occcc....cccco.....", "........................", "........................", "........................"],
 };
+const BANG = ["rr", "rr", "rr", "rr", "..", "rr"];
 const TRAY = ["..gg.gg.gg..", "waaaaaaaaaaw", ".oAAAAAAAAo."];
 
 const PALETTES = {
   light: { o: "#14100e", c: "#262422", C: "#3d3936", w: "#f4f1e8", s: "#f2caa2", d: "#c99a6e",
            h: "#e2ded6", H: "#a9a49a", e: "#241a14", m: "#a49d92",
-           a: "#cfd6dc", A: "#8e979f", g: "#e2ad35" },
+           a: "#cfd6dc", A: "#8e979f", g: "#e2ad35", r: "#c0453f" },
   // Lifted coat plus a grey rim, so he reads as a butler and not a floating head.
   dark:  { o: "#6d675e", c: "#33302d", C: "#4a4643", w: "#f4f1e8", s: "#f2caa2", d: "#c99a6e",
            h: "#e8e4dc", H: "#9d988e", e: "#1a1410", m: "#b3aca1",
-           a: "#dbe1e6", A: "#7d858c", g: "#efbb45" },
+           a: "#dbe1e6", A: "#7d858c", g: "#efbb45", r: "#e5706b" },
 };
 let PAL = PALETTES.light;
 
@@ -518,11 +519,17 @@ function drawScene() {
   if (pet.blink > 0) pose = "blink";
   stamp(SPRITES[pose] || SPRITES.stand, pet.x, y, facing);
 
-  // The tray rides at his waist while he works and lifts to chest height when
-  // he is presenting something to you. A slow wobble keeps it alive.
-  const wobble = pet.t % 8 < 4 ? 0 : 1;
-  const trayY = y + ((pet.mood === "attention" || pet.mood === "alarm") ? 11 : 15) + wobble;
-  stamp(TRAY, pet.x + 6, trayY, false);
+  // The tray only appears when he actually has something for you. A butler
+  // holding one out permanently says nothing; holding one out *now* does.
+  if (pet.mood === "attention") {
+    const wobble = pet.t % 8 < 4 ? 0 : 1;
+    stamp(TRAY, pet.x + 6, y + 11 + wobble, false);
+  }
+
+  // Something is wrong: no offering, just the mark, blinking beside his head.
+  if (pet.mood === "alarm" && pet.t % 6 < 4) {
+    stamp(BANG, pet.x + 20, y + 2, false);
+  }
 }
 
 const MOODS = {
@@ -561,22 +568,32 @@ function tick() {
   if (pet.blink > 0) pet.blink--;
   else if (Math.random() < 0.03) pet.blink = 2;
 
+  // Waiting on you, or something is wrong: he stops where he is and faces you.
+  // Standing still is the signal; wandering off would undercut it.
   if (pet.mood === "attention" || pet.mood === "alarm") {
-    pet.pose = "stand";          // he stops and faces you when he needs something
-  } else if (pet.hold > 0) {
+    pet.pose = "stand";
+    pet.hold = 0;
+    drawScene();
+    return;
+  }
+
+  if (pet.hold > 0) {
     pet.hold--;
   } else if (pet.pose === "walk") {
     pet.x += pet.dir;
     if (pet.x <= 1) { pet.x = 1; pet.dir = 1; }
     if (pet.x >= 23) { pet.x = 23; pet.dir = -1; }
-    // busy means brisk; idle means he stops to look around
-    if (pet.mood === "idle" && Math.random() < 0.06) { pet.pose = "stand"; pet.hold = 8 + (Math.random() * 16 | 0); }
+    // Busy keeps moving; idle stops to look around.
+    if (pet.mood === "idle" && Math.random() < 0.08) { pet.pose = "stand"; pet.hold = 10 + (Math.random() * 20 | 0); }
   } else {
-    if (Math.random() < (pet.mood === "busy" ? 0.6 : 0.15)) {
+    const wander = pet.mood === "busy" ? 0.7 : 0.12;
+    if (Math.random() < wander) {
       pet.pose = "walk";
       if (Math.random() < 0.4) pet.dir *= -1;
-    } else if (Math.random() < 0.05) {
-      pet.pose = "bow"; pet.hold = 5;
+    } else if (Math.random() < 0.06) {
+      pet.pose = "bow"; pet.hold = 6;
+    } else if (Math.random() < 0.12) {
+      pet.dir *= -1;                    // a glance the other way
     }
   }
   if (pet.pose === "bow" && pet.hold === 0) pet.pose = "stand";
