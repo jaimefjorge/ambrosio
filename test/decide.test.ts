@@ -14,7 +14,7 @@ function spy(over: Partial<DecideDeps> = {}) {
     comment: (_c, _r, id, text) => log.push(`comment:${id}:${text}`),
     transition: (_c, _r, id, status) => log.push(`status:${id}:${status}`),
     resume: (_c, ticket, _repo, text) => { log.push(`resume:${ticket}:${text}`); return "resumed"; },
-    journal: (_c, line) => log.push(`journal:${line.slice(0, 24)}`),
+    journal: (_c, line) => log.push(`journal:${line}`),
     ...over,
   };
   return { deps, log };
@@ -37,12 +37,13 @@ describe("applyDecision", () => {
     const r = applyDecision(cfg, { kind: "reject", ...at, note: "the migration path is untested" }, deps);
 
     expect(r.outcome).toBe("resumed");
-    expect(log).toEqual([
+    expect(log.slice(0, 3)).toEqual([
       "comment:gmc-4or:Jaime rejected: the migration path is untested",
       "status:gmc-4or:in_progress",
       "resume:gmc-4or:Jaime rejected: the migration path is untested",
-      "journal:gmc-4or rejected and ret",
     ]);
+    // The journal says what actually happened to the hand-over.
+    expect(log[3]).toContain("the worker picked it up");
   });
 
   test("rejecting without a reason is refused: the worker would learn nothing", () => {
@@ -79,5 +80,53 @@ describe("applyDecision", () => {
     const { deps, log } = spy();
     expect(() => applyDecision(cfg, { kind: "accept", ticket: "x-1", repo: "nope" }, deps)).toThrow();
     expect(log).toEqual([]);
+  });
+});
+
+// --- Feedback must survive a busy or finished worker ------------------------
+
+import { deliverPendingFeedback, pendingFeedback, DecideError as DE } from "../src/decide.ts";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const home = () => ({ ...cfg, homeDir: mkdtempSync(join(tmpdir(), "amb-dec-")) }) as AmbrosioConfig;
+
+describe("feedback that could not be handed over", () => {
+  test("a busy worker means the reason is kept, not dropped", () => {
+    const c = home();
+    const { deps } = spy({ resume: () => "deferred" });
+    const r = applyDecision(c, { kind: "reject", ...at, note: "push to experimental" }, deps);
+
+    expect(r.outcome).toBe("deferred");
+    expect(pendingFeedback(c).map((p) => [p.ticket, p.text])).toEqual([["gmc-4or", "Jaime rejected: push to experimental"]]);
+  });
+
+  test("it is handed over on a later pass, then forgotten", () => {
+    const c = home();
+    applyDecision(c, { kind: "reject", ...at, note: "push to experimental" }, spy({ resume: () => "deferred" }).deps);
+
+    expect(deliverPendingFeedback(c, () => "deferred")).toEqual([]);      // still busy
+    expect(pendingFeedback(c)).toHaveLength(1);
+
+    expect(deliverPendingFeedback(c, () => "resumed").map((d) => d.ticket)).toEqual(["gmc-4or"]);
+    expect(pendingFeedback(c)).toHaveLength(0);
+  });
+
+  test("a worker that has finished is reported as needing a fresh dispatch", () => {
+    const c = home();
+    const { deps } = spy({ resume: () => { throw new Error("no session UUID found for gmc-4or"); } });
+    const r = applyDecision(c, { kind: "reject", ...at, note: "push to experimental" }, deps);
+
+    // The ticket still moved and the reason is still on it; only the hand-over
+    // is impossible, and saying "returned to the worker" would be a lie.
+    expect(r.outcome).toBe("no_worker");
+    expect(pendingFeedback(c)).toHaveLength(1);
+  });
+
+  test("accepting never records feedback: there is no worker to tell", () => {
+    const c = home();
+    applyDecision(c, { kind: "accept", ...at }, spy().deps);
+    expect(pendingFeedback(c)).toHaveLength(0);
   });
 });

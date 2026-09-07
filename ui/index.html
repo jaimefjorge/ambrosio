@@ -356,7 +356,8 @@ async function sendDecision(row, kind) {
     if (!r.ok || res.error) throw new Error(res.error || "failed");
     said[id] = res.outcome === "closed" ? `accepted — ${id} closed`
              : res.outcome === "resumed" ? `sent — ${id} picked it up`
-             : `sent — ${id} has no live worker, it needs dispatching again`;
+             : res.outcome === "deferred" ? `sent — ${id} is mid-turn; it will get this as soon as it parks`
+             : `sent — ${id} has no live worker, so it needs dispatching again`;
     input.value = "";
     lastQSig = null;
   } catch (e) {

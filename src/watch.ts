@@ -31,6 +31,8 @@ export type WatchDeps = {
   deliverHeld?: (cfg: AmbrosioConfig) => { qid: string; ticket: string; repo: string }[];
   /** Decide whether Jaime hears anything this pass, and say it. */
   notify?: (cfg: AmbrosioConfig) => { digest: boolean; urgent: string[] };
+  /** Retry a rejection or plan change whose worker was busy. */
+  deliverFeedback?: (cfg: AmbrosioConfig) => { ticket: string }[];
 };
 
 /**
@@ -135,7 +137,7 @@ import { collectBoard } from "./board.ts";
 import { notifyPass, realNotifyDeps, hourKey } from "./notify.ts";
 import { assignKeys, renderDigest } from "./digest.ts";
 import { applyAnswer, deliverHeldAnswers } from "./dispatch.ts";
-import { applyDecision, type Decision } from "./decide.ts";
+import { applyDecision, deliverPendingFeedback, type Decision } from "./decide.ts";
 
 /** A woken manager costs a session, so never storm it. */
 const WAKE_COOLDOWN_MS = 60_000;
@@ -212,13 +214,17 @@ export function onePass(
   handled: Handled[];
   delivered: { qid: string; ticket: string; repo: string }[];
   notified: { digest: boolean; urgent: string[] };
+  feedback: { ticket: string }[];
 } {
   const delivered = (deps.deliverHeld ?? deliverHeldAnswers)(cfg);
+  // A rejection only means something once the worker hears why, and that
+  // hand-over waits for the worker to park just as an answer does.
+  const feedback = (deps.deliverFeedback ?? ((c) => deliverPendingFeedback(c)))(cfg);
   const handled = drain(cfg, deps);
   // Outbound last: a reply handled in this same pass should be reflected in
   // whatever Jaime is about to be told.
   const notified = (deps.notify ?? ((c) => notifyPass(c, realNotifyDeps())))(cfg);
-  return { handled, delivered, notified };
+  return { handled, delivered, notified, feedback };
 }
 
 export type WatchOptions = { intervalMs?: number; deps?: WatchDeps; onEvent?: (h: Handled[]) => void };
@@ -233,9 +239,12 @@ export async function runWatch(cfg: AmbrosioConfig, opts: WatchOptions = {}): Pr
   const deps = opts.deps ?? realDeps();
   for (;;) {
     try {
-      const { handled, delivered, notified } = onePass(cfg, deps);
+      const { handled, delivered, notified, feedback } = onePass(cfg, deps);
       for (const d of delivered) {
         opts.onEvent?.([{ text: `held answer delivered to ${d.ticket}`, at: new Date(), actions: [] }]);
+      }
+      for (const f of feedback) {
+        opts.onEvent?.([{ text: `feedback delivered to ${f.ticket}`, at: new Date(), actions: [] }]);
       }
       if (handled.length > 0) opts.onEvent?.(handled);
       if (notified.digest) opts.onEvent?.([{ text: "digest sent", at: new Date(), actions: [] }]);

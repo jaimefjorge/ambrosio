@@ -88,7 +88,7 @@ what is not.
 ```sh
 bin/ambrosio setup     # generates machine-local config, initializes Beads
 bin/ambrosio start     # fleet view on :4317 + the watcher, one process
-bun test               # 156 tests
+bun test               # 160 tests
 ```
 
 ---
