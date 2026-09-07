@@ -27,6 +27,8 @@ export type WatchDeps = {
   wake: (cfg: AmbrosioConfig) => void;
   /** Retry answers recorded while their worker was mid-turn. */
   deliverHeld?: (cfg: AmbrosioConfig) => { qid: string; ticket: string; repo: string }[];
+  /** Decide whether Jaime hears anything this pass, and say it. */
+  notify?: (cfg: AmbrosioConfig) => { digest: boolean; urgent: string[] };
 };
 
 /**
@@ -115,6 +117,7 @@ import * as inbox from "./inbox.ts";
 import * as journal from "./journal.ts";
 import * as tracker from "./tracker.ts";
 import { collectBoard } from "./board.ts";
+import { notifyPass, realNotifyDeps, hourKey } from "./notify.ts";
 import { assignKeys, renderDigest } from "./digest.ts";
 import { applyAnswer, deliverHeldAnswers } from "./dispatch.ts";
 
@@ -149,6 +152,8 @@ export function realDeps(): WatchDeps {
     sendDigest: (cfg) => {
       imessage.sendAll(cfg, renderDigest(collectBoard(cfg)));
       journal.append(cfg.homeDir, "sent the digest because Jaime asked for status");
+      const n = realNotifyDeps();
+      n.writeState(cfg, { ...n.readState(cfg), lastDigestHour: hourKey(new Date()) });
     },
 
     transition: (cfg, repo, ticket, status, note) => {
@@ -185,9 +190,17 @@ export function realDeps(): WatchDeps {
 export function onePass(
   cfg: AmbrosioConfig,
   deps: WatchDeps,
-): { handled: Handled[]; delivered: { qid: string; ticket: string; repo: string }[] } {
+): {
+  handled: Handled[];
+  delivered: { qid: string; ticket: string; repo: string }[];
+  notified: { digest: boolean; urgent: string[] };
+} {
   const delivered = (deps.deliverHeld ?? deliverHeldAnswers)(cfg);
-  return { handled: drain(cfg, deps), delivered };
+  const handled = drain(cfg, deps);
+  // Outbound last: a reply handled in this same pass should be reflected in
+  // whatever Jaime is about to be told.
+  const notified = (deps.notify ?? ((c) => notifyPass(c, realNotifyDeps())))(cfg);
+  return { handled, delivered, notified };
 }
 
 export type WatchOptions = { intervalMs?: number; deps?: WatchDeps; onEvent?: (h: Handled[]) => void };
@@ -202,11 +215,15 @@ export async function runWatch(cfg: AmbrosioConfig, opts: WatchOptions = {}): Pr
   const deps = opts.deps ?? realDeps();
   for (;;) {
     try {
-      const { handled, delivered } = onePass(cfg, deps);
+      const { handled, delivered, notified } = onePass(cfg, deps);
       for (const d of delivered) {
         opts.onEvent?.([{ text: `held answer delivered to ${d.ticket}`, at: new Date(), actions: [] }]);
       }
       if (handled.length > 0) opts.onEvent?.(handled);
+      if (notified.digest) opts.onEvent?.([{ text: "digest sent", at: new Date(), actions: [] }]);
+      for (const qid of notified.urgent) {
+        opts.onEvent?.([{ text: `urgent sent: ${qid}`, at: new Date(), actions: [] }]);
+      }
     } catch (e) {
       // Never let one bad pass kill the watcher: it is meant to run all day.
       opts.onEvent?.([{ text: `watch error: ${(e as Error).message}`, at: new Date(), actions: [] }]);

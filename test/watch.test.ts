@@ -124,7 +124,7 @@ describe("onePass", () => {
     // What unblocks a held answer is the worker parking, not a new message.
     const { deps } = spyDeps([]);
     let tried = 0;
-    const r = onePass(cfg, { ...deps, deliverHeld: () => { tried++; return [{ qid: "q-1", ticket: "T-1", repo: "r" }]; } });
+    const r = onePass(cfg, { ...deps, notify: () => ({ digest: false, urgent: [] }), deliverHeld: () => { tried++; return [{ qid: "q-1", ticket: "T-1", repo: "r" }]; } });
 
     expect(tried).toBe(1);
     expect(r.delivered.map((d) => d.qid)).toEqual(["q-1"]);
@@ -134,8 +134,19 @@ describe("onePass", () => {
   test("hands over first, then acts on new replies", () => {
     const order: string[] = [];
     const { deps } = spyDeps([msg("status")], { sendDigest: () => order.push("digest") });
-    onePass(cfg, { ...deps, deliverHeld: () => { order.push("held"); return []; } });
+    onePass(cfg, { ...deps, notify: () => ({ digest: false, urgent: [] }), deliverHeld: () => { order.push("held"); return []; } });
 
     expect(order).toEqual(["held", "digest"]);
   });
+});
+
+test("onePass sends after routing, so a reply just handled is reflected in what Jaime hears", () => {
+  const order: string[] = [];
+  const { deps } = spyDeps([msg("Q1 b")], { answer: () => { order.push("answered"); return "resumed"; } });
+  onePass(cfg, {
+    ...deps,
+    deliverHeld: () => [],
+    notify: () => { order.push("notified"); return { digest: true, urgent: [] }; },
+  });
+  expect(order).toEqual(["answered", "notified"]);
 });

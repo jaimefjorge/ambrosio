@@ -199,3 +199,13 @@ describe("deliverHeldAnswers", () => {
     expect(queue.get(c.homeDir, "q-1")?.status).toBe("answered");
   });
 });
+
+test("held-answer retries stay out of the journal, which the manager reads each morning", () => {
+  const c = cfg();
+  withQuestion(c.homeDir, "q-1");
+  applyAnswer(c, "q-1", "three retries", () => "deferred");
+
+  const seen: any[] = [];
+  deliverHeldAnswers(c, (_c, o) => { seen.push(o); return "deferred"; });
+  expect(seen[0].quiet).toBe(true);
+});

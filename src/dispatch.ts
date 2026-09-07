@@ -154,7 +154,7 @@ export function deliverHeldAnswers(
   for (const item of queue.listAnswered(cfg.homeDir)) {
     if (!item.answer) continue;
     try {
-      const how = deliver(cfg, { ticket: item.ticket, repo: item.repo, sessionId: item.sessionId, text: item.answer });
+      const how = deliver(cfg, { ticket: item.ticket, repo: item.repo, sessionId: item.sessionId, text: item.answer, quiet: true });
       if (how !== "resumed") continue;
       queue.markDelivered(cfg.homeDir, item.qid);
       journal.append(cfg.homeDir, `held answer for ${item.ticket} delivered (${item.qid})`);
@@ -178,14 +178,16 @@ export function deliverHeldAnswers(
  */
 export function deliverAnswer(
   cfg: AmbrosioConfig,
-  opts: { ticket: string; repo: string; sessionId?: string; text: string },
+  opts: { ticket: string; repo: string; sessionId?: string; text: string; quiet?: boolean },
   deps: { workers: () => agents.Agent[]; resume: typeof agents.resumeStopped } = { workers: agents.workers, resume: agents.resumeStopped },
 ): "resumed" | "deferred" {
   const repo = repoByName(cfg, opts.repo);
   const live = deps.workers().find((a) => a.name === opts.ticket);
 
   if (live?.state === "working") {
-    journal.append(cfg.homeDir, `answer for ${opts.ticket} held: worker is still running`);
+    // `quiet` is for the watcher's retry loop: it asks every few seconds, and
+    // a line per attempt would bury the day's actual decisions.
+    if (!opts.quiet) journal.append(cfg.homeDir, `answer for ${opts.ticket} held: worker is still running`);
     return "deferred";
   }
 

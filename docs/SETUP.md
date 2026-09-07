@@ -31,7 +31,11 @@ cd ~/Workspace/ambrosio && claude --channels plugin:imessage@claude-plugins-offi
 /loop 60m /ambrosio-tick
 ```
 
-**Tab 3 — the watcher.** The hourly loop is what keeps Ambrosio from interrupting you; the watcher is what keeps you from waiting on it. It reads the Messages database every few seconds — no model, no tokens — and routes your replies the moment they land, so answering `Q1 b` resumes the parked worker in about a second instead of at the top of the hour. Replies that need judgment wake the manager once.
+**Tab 3 — the watcher.** This is the part that talks to you, in both directions, and it runs without a model.
+
+Every few seconds it reads the Messages database and routes what you sent: `Q1 b` resumes the parked worker in about a second, `status` sends the digest, `T-4 defer` parks the ticket. It also hands over answers that were recorded while their worker was mid-turn, and it sends *outbound* on the same schedule the charter describes — at most one digest per clock hour, nothing at all outside working hours, nothing when there is nothing to decide, and an urgent question on its own if a digest already went out that hour.
+
+So notifications no longer depend on a live session. Tab 2 is still where the day gets planned, work gets dispatched and plans get reviewed; the watcher wakes it when a reply needs that judgment.
 
 ```sh
 cd ~/Workspace/ambrosio && bin/ambrosio watch

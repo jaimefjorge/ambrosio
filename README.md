@@ -71,7 +71,7 @@ Ambrosio is a thin layer over them rather than another control plane.
 | `worker/prompt.md` | The contract every worker runs under: plan, implement, verify with evidence, hand over. Never merge, never close a ticket. |
 | `worker/hooks/` | Guards that park questions instead of blocking, turn unattended permission prompts into queue items, and refuse pushes to main. |
 | `bin/ambrosio` | The CLI: `status`, `dispatch`, `queue`, `answer`, `digest`, `inbox`, `watch`, `ui`, `tick`, `setup`. |
-| `src/` | Tracker (Beads), sessions, question queue, digest renderer, reply grammar, inbound reader, per-ticket memory. |
+| `src/` | Tracker (Beads), sessions, question queue, digest renderer, reply grammar, inbound reader, notification policy, per-ticket memory. |
 
 Tickets live in [Beads](https://github.com/gastownhall/beads) per repo. Quality is
 gated by [Verity](https://verity.md). Messages arrive over the official iMessage
@@ -87,7 +87,7 @@ what is not.
 
 ```sh
 bin/ambrosio setup     # generates machine-local config, initializes Beads
-bun test               # 129 tests
+bun test               # 140 tests
 ```
 
 ---
