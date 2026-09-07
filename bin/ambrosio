@@ -12,6 +12,7 @@ import * as queue from "../src/queue.ts";
 import * as journal from "../src/journal.ts";
 import * as imessage from "../src/imessage.ts";
 import * as inbox from "../src/inbox.ts";
+import { runWatch } from "../src/watch.ts";
 import { parseReplies } from "../src/replies.ts";
 import { collectBoard, canDispatch, wipUsed } from "../src/board.ts";
 import { renderDigest, renderUrgent, hasDecisions, assignKeys } from "../src/digest.ts";
@@ -51,6 +52,7 @@ const HELP = `ambrosio — manager for Claude Code workers
   urgent [--send]              render anything urgent
   send <text...>               send yourself an iMessage
   inbox [--json]               what you have texted Ambrosio since the last read
+  watch [--interval <sec>]     route your replies the moment they arrive
   tick [--send]                one manager cycle: route, detect, dispatch, digest
   journal                      today's decisions
 `;
@@ -259,6 +261,22 @@ switch (cmd) {
     const msgs = inbox.readInbound(c);
     if (asJson) { out(msgs.map((m) => ({ ...m, at: m.at.toISOString(), replies: parseReplies(m.text) }))); break; }
     out(msgs.length === 0 ? "(nothing new)" : msgs.map((m) => `${m.at.toLocaleTimeString()}  ${m.text}`).join("\n"));
+    break;
+  }
+
+  case "watch": {
+    const c = cfg();
+    const secs = Number(argv.find((a) => a.startsWith("--interval="))?.split("=")[1] ?? 5);
+    console.log(`ambrosio: watching ${c.imessage.handle} every ${secs}s — answers route straight to the worker. Ctrl-C to stop.`);
+    await runWatch(c, {
+      intervalMs: secs * 1000,
+      onEvent: (handled) => {
+        for (const h of handled) {
+          const what = h.actions.map((a) => ("kind" in a ? a.kind : "?")).join(", ") || "nothing";
+          console.log(`${new Date().toLocaleTimeString()}  "${h.text.split("\n")[0].slice(0, 60)}" -> ${what}`);
+        }
+      },
+    });
     break;
   }
 

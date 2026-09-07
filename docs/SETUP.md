@@ -30,6 +30,13 @@ It shows you the state of the world, asks what today is about, drafts tickets wi
 cd ~/Workspace/ambrosio && claude --channels plugin:imessage@claude-plugins-official
 /loop 60m /ambrosio-tick
 ```
+
+**Tab 3 — the watcher.** The hourly loop is what keeps Ambrosio from interrupting you; the watcher is what keeps you from waiting on it. It reads the Messages database every few seconds — no model, no tokens — and routes your replies the moment they land, so answering `Q1 b` resumes the parked worker in about a second instead of at the top of the hour. Replies that need judgment wake the manager once.
+
+```sh
+cd ~/Workspace/ambrosio && bin/ambrosio watch
+```
+
 Leave it running. Accept the Messages automation prompt the first time it replies. Everything after this happens in Messages.
 
 At the end of the day, in tab 1: `/ambrosio-wrap-up`.
