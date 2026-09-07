@@ -17,6 +17,7 @@ import { serve } from "../src/ui.ts";
 import { buildBrief, realMorningDeps } from "../src/morning.ts";
 import { readFocus, setFocus } from "../src/today.ts";
 import { ask } from "../src/ask.ts";
+import { saveReview, recentLessons } from "../src/review.ts";
 import { parseReplies } from "../src/replies.ts";
 import { collectBoard, canDispatch, wipUsed } from "../src/board.ts";
 import { renderDigest, renderUrgent, hasDecisions, assignKeys } from "../src/digest.ts";
@@ -82,6 +83,7 @@ const HELP = `ambrosio — manager for Claude Code workers
   today <repo…> [-- <mission>] set what today is for; no args prints it
   morning [--json]             the morning brief, scoped to today's projects
   ask <question...>            ask Ambrosio about the work (--ticket <id> to scope it)
+  review --well <…> --better <…>   the end-of-day review; no args lists standing lessons
   journal                      today's decisions
 `;
 
@@ -398,6 +400,31 @@ switch (cmd) {
     const r = ask(c, question, { ticket });
     out(r.answer);
     if (!r.ok) process.exit(1);
+    break;
+  }
+
+  case "review": {
+    const c = cfg();
+    const grab = (flag: string) => {
+      const i = argv.indexOf(`--${flag}`);
+      if (i === -1) return "";
+      const rest = argv.slice(i + 1);
+      const stop = rest.findIndex((a) => a.startsWith("--"));
+      return (stop === -1 ? rest : rest.slice(0, stop)).join(" ");
+    };
+    const well = grab("well"), better = grab("better");
+    if (!well && !better) {
+      const ls = recentLessons(c, 5);
+      out(ls.length ? ls.map((l) => `${l.date}  ${l.lesson}`).join("\n") : "(no lessons recorded yet)");
+      break;
+    }
+    try {
+      const r = saveReview(c, { wentWell: well, doBetter: better });
+      journal.append(c.homeDir, `Jaime's review — better tomorrow: ${r.doBetter || "(nothing)"}`);
+      out("recorded. tomorrow will know.");
+    } catch (e) {
+      die((e as Error).message);
+    }
     break;
   }
 

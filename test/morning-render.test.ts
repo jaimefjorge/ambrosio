@@ -39,6 +39,7 @@ const base = {
   date: "2026-09-08T08:00:00.000Z", greeting: "Good morning, sir.", mission: "", repos: [],
   capacity: { used: 0, limit: 3, free: 3 },
   carryover: [], waiting: [], ready: [], inFlight: [], prs: [], linear: [],
+  recap: { accepted: [], dispatched: [], night: [] }, lessons: [], yesterdayReview: null,
   verity: [], sources: [{ name: "Board", ok: true, detail: "read" }],
 };
 
@@ -110,5 +111,40 @@ describe("the brief, once the day is set", () => {
     const m = mount();
     m.api.render({ ...base, capacity: { used: 3, limit: 3, free: 0 } });
     expect(m.html("slots")).toContain("All 3 slots are busy");
+  });
+});
+
+describe("starting the day by knowing yesterday", () => {
+  const withRecap = (extra: any) => {
+    const m = mount();
+    m.api.render({ ...base, ...extra });
+    return m.html("brief");
+  };
+
+  test("shows what was accepted and what the night shift did", () => {
+    const out = withRecap({
+      recap: { accepted: ["gmc-gfh (PR 156)"], dispatched: [], night: ["started gmc-szb (symlink)"] },
+    });
+    expect(out).toContain("Since yesterday");
+    expect(out).toContain("gmc-gfh (PR 156)");
+    expect(out).toContain("after hours");
+    expect(out).toContain("started gmc-szb");
+  });
+
+  test("plays back what Jaime said at the end of yesterday", () => {
+    const out = withRecap({ yesterdayReview: { wentWell: "two landed clean", doBetter: "ask about branches" } });
+    expect(out).toContain("Yesterday you said");
+    expect(out).toContain("two landed clean");
+    expect(out).toContain("ask about branches");
+  });
+
+  test("standing lessons say they reach every worker, so they are not just a note", () => {
+    const out = withRecap({ lessons: [{ date: "2026-09-07", lesson: "smaller tickets" }] });
+    expect(out).toContain("smaller tickets");
+    expect(out).toContain("every worker is told this");
+  });
+
+  test("a first-ever morning has no recap section rather than an empty one", () => {
+    expect(withRecap({})).not.toContain("Since yesterday");
   });
 });

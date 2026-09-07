@@ -11,6 +11,8 @@ import { applyDecision, type Decision } from "./decide.ts";
 import { buildBrief, realMorningDeps } from "./morning.ts";
 import { readFocus, setFocus } from "./today.ts";
 import { ask } from "./ask.ts";
+import { saveReview, readReview, recentLessons } from "./review.ts";
+import { isAfterHours } from "./afterhours.ts";
 import * as journal from "./journal.ts";
 import { dispatchTicket } from "./dispatch.ts";
 import { canDispatch, wipUsed } from "./board.ts";
@@ -21,7 +23,7 @@ import { canDispatch, wipUsed } from "./board.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "5";
+export const UI_VERSION = "6";
 
 export type UiWorker = {
   id?: string;
@@ -253,6 +255,20 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
         }
       }
 
+      if (url.pathname === "/api/review") {
+        if (req.method === "POST") {
+          try {
+            const { wentWell, doBetter } = (await req.json()) as { wentWell?: string; doBetter?: string };
+            const r = saveReview(cfg, { wentWell: wentWell ?? "", doBetter: doBetter ?? "" });
+            journal.append(cfg.homeDir, `Jaime's review — better tomorrow: ${r.doBetter || "(nothing)"}`);
+            return Response.json({ ok: true, review: r });
+          } catch (e) {
+            return Response.json({ error: (e as Error).message }, { status: 400 });
+          }
+        }
+        return Response.json({ today: readReview(cfg), lessons: recentLessons(cfg, 5) });
+      }
+
       if (url.pathname === "/api/ask" && req.method === "POST") {
         try {
           const { question, ticket } = (await req.json()) as { question?: string; ticket?: string };
@@ -299,7 +315,7 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
       if (url.pathname === "/api/board") {
         try {
           const payload = buildPayload(cfg, collectBoard(cfg));
-          return Response.json({ ...payload, version: UI_VERSION });
+          return Response.json({ ...payload, afterHours: isAfterHours(cfg), version: UI_VERSION });
         } catch (e) {
           // The view must say what broke rather than showing an empty, calm board.
           return Response.json({ error: (e as Error).message }, { status: 500 });
@@ -312,8 +328,8 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
         });
       }
 
-      if (url.pathname === "/" || url.pathname === "/morning") {
-        const file = url.pathname === "/morning" ? join(cfg.rootDir, "ui", "morning.html") : page;
+      if (url.pathname === "/" || url.pathname === "/morning" || url.pathname === "/review") {
+        const file = url.pathname === "/" ? page : join(cfg.rootDir, "ui", `${url.pathname.slice(1)}.html`);
         return new Response(readFileSync(file, "utf8"), {
           headers: { "content-type": "text/html; charset=utf-8" },
         });

@@ -15,16 +15,18 @@ const SPRITES = {
   bow: ["........................", "........................", "........................", "........oooooooo........", "......oohhhhhhhhoo......", ".....ohhhhhhhhhhhho.....", "....ohhhhhHHHHhhhhho....", ".....ohhsssssssshho.....", ".....ohsseesseessho.....", ".....ohssssssssssho.....", ".....osssmmmmmmssso.....", ".....ossssddddsssso.....", "......oddddddddddo......", ".......owwwwwwwwo.......", "....occcccwoowccccco....", "...occccccCwwCcccccco...", "...occcccccwwccccccco...", "...occcccccccccccccco...", "...occcccccccccccccco...", "....occcccccccccccco....", ".....occcc....cccco.....", "........................", "........................", "........................"],
 };
 const BANG = ["rr", "rr", "rr", "rr", "..", "rr"];
+// A candle: he keeps working after Jaime has gone.
+const CANDLE = ["..y..", ".yYy.", "..w..", ".www.", ".aaa."];
 const TRAY = ["..gg.gg.gg..", "waaaaaaaaaaw", ".oAAAAAAAAo."];
 
 const PALETTES = {
   light: { o: "#14100e", c: "#262422", C: "#3d3936", w: "#f4f1e8", s: "#f2caa2", d: "#c99a6e",
            h: "#e2ded6", H: "#a9a49a", e: "#241a14", m: "#a49d92",
-           a: "#cfd6dc", A: "#8e979f", g: "#e2ad35", r: "#c0453f" },
+           a: "#cfd6dc", A: "#8e979f", g: "#e2ad35", r: "#c0453f", y: "#f0c14b", Y: "#fff0b8" },
   // Lifted coat plus a grey rim, so he reads as a butler and not a floating head.
   dark:  { o: "#6d675e", c: "#33302d", C: "#4a4643", w: "#f4f1e8", s: "#f2caa2", d: "#c99a6e",
            h: "#e8e4dc", H: "#9d988e", e: "#1a1410", m: "#b3aca1",
-           a: "#dbe1e6", A: "#7d858c", g: "#efbb45", r: "#e5706b" },
+           a: "#dbe1e6", A: "#7d858c", g: "#efbb45", r: "#e5706b", y: "#ffd257", Y: "#fff6cf" },
 };
 let PAL = PALETTES.light;
 
@@ -160,10 +162,17 @@ function drawScene() {
   if (pet.mood === "alarm" && pet.t % 6 < 4) {
     stamp(BANG, pet.x + 20, y + 2, false);
   }
+
+  // After hours he carries a candle, and the flame gutters. Jaime is not here;
+  // this is the shift where nothing is asked of him.
+  if (pet.mood === "night") {
+    stamp(pet.t % 10 < 5 ? CANDLE : CANDLE.map((r, i) => (i === 1 ? ".y.y." : r)), pet.x + (pet.dir < 0 ? -3 : 22), y + 12, false);
+  }
 }
 
 const MOODS = {
   idle:      { text: "all quiet" },
+  night:     { text: "after hours" },
   busy:      { text: "working" },
   attention: { text: "needs you" },
   alarm:     { text: "check the board" },
@@ -201,6 +210,24 @@ function tick() {
   if (pet.mood === "attention" || pet.mood === "alarm") {
     pet.pose = "stand";
     pet.hold = 0;
+    drawScene();
+    return;
+  }
+
+  // The night shift: slow, steady, and he never turns to face you, because
+  // there is no one to face.
+  if (pet.mood === "night") {
+    if (pet.t % 2 === 0) {
+      if (pet.hold > 0) pet.hold--;
+      else if (pet.pose === "walk") {
+        pet.x += pet.dir;
+        if (pet.x <= 1) { pet.x = 1; pet.dir = 1; }
+        if (pet.x >= 23) { pet.x = 23; pet.dir = -1; }
+        if (Math.random() < 0.05) { pet.pose = "stand"; pet.hold = 12; }
+      } else if (Math.random() < 0.3) {
+        pet.pose = "walk";
+      }
+    }
     drawScene();
     return;
   }

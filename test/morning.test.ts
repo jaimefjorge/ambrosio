@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildBrief, classifyPr, carryoverFrom, greeting, type MorningDeps } from "../src/morning.ts";
+import { buildBrief, classifyPr, carryoverFrom, greeting, recapFrom, type MorningDeps } from "../src/morning.ts";
 import type { AmbrosioConfig } from "../src/config.ts";
 import type { Board } from "../src/board.ts";
 
@@ -26,6 +26,8 @@ function deps(over: Partial<MorningDeps> = {}): MorningDeps {
     linear: () => ({ issues: [], source: { name: "Linear", ok: false, detail: "no api key" } }),
     verity: () => [],
     journal: () => "",
+    lessons: () => [],
+    yesterdayReview: () => null,
     now: () => new Date("2026-09-08T08:00:00"),
     ...over,
   };
@@ -152,5 +154,37 @@ describe("scoping the brief to the day's projects", () => {
   test("carries the mission so the brief knows what today is for", () => {
     const b = buildBrief(cfg, wide(), { repos: ["gatemd-core"], mission: "ship the gate" });
     expect(b.mission).toBe("ship the gate");
+  });
+});
+
+describe("what happened since yesterday morning", () => {
+  const day = [
+    "- 09:10 dispatched gatemd-core gmc-4or (Fresh-repo e2e) as session abc",
+    "- 14:20 gmc-gfh accepted and closed (PR 156)",
+    "- 15:40 after hours: started gmc-szb (verity bin symlink removed)",
+    "- 16:10 after hours: parked gmc-szb, it needs Jaime",
+    "- 12:00 digest sent (1 questions, 0 plans, 0 to accept)",
+  ].join("\n");
+
+  test("separates what was accepted, what was started, and what the night did", () => {
+    const r = recapFrom(day);
+    expect(r.accepted).toEqual(["gmc-gfh (PR 156)"]);
+    expect(r.dispatched).toEqual(["gmc-4or — Fresh-repo e2e"]);
+    expect(r.night).toEqual(["started gmc-szb (verity bin symlink removed)", "parked gmc-szb, it needs Jaime"]);
+  });
+
+  test("routine lines are not achievements", () => {
+    expect(recapFrom("- 12:00 digest sent (1 questions)").accepted).toEqual([]);
+  });
+
+  test("the brief carries the recap and the lessons forward", () => {
+    const b = buildBrief(cfg, deps({
+      journal: () => day,
+      lessons: () => [{ date: "2026-09-07", lesson: "ask about branches first" }],
+      yesterdayReview: () => ({ wentWell: "two landed", doBetter: "ask about branches first" }),
+    }));
+    expect(b.recap.night).toHaveLength(2);
+    expect(b.lessons[0].lesson).toBe("ask about branches first");
+    expect(b.yesterdayReview!.wentWell).toBe("two landed");
   });
 });

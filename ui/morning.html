@@ -232,6 +232,28 @@ function render(b) {
     </div>`);
   }
 
+  // Yesterday first: the day starts by knowing what it is building on.
+  const r = b.recap || { accepted: [], dispatched: [], night: [] };
+  const yesterdayCount = r.accepted.length + r.night.length;
+  if (yesterdayCount) {
+    parts.push(`<h2>Since yesterday <span class="n">${yesterdayCount}</span></h2><div class="panel">` +
+      r.accepted.map((x) => `<div class="row"><div class="body">${esc(x)}</div>${tag("accepted", "good")}</div>`).join("") +
+      r.night.map((x) => `<div class="row"><div class="body">${esc(x)}</div>${tag("after hours")}</div>`).join("") +
+      "</div>");
+  }
+
+  if (b.yesterdayReview && (b.yesterdayReview.wentWell || b.yesterdayReview.doBetter)) {
+    parts.push('<h2>Yesterday you said</h2><div class="panel">' +
+      (b.yesterdayReview.wentWell ? `<div class="row"><div class="body">${esc(b.yesterdayReview.wentWell)}</div>${tag("went well", "good")}</div>` : "") +
+      (b.yesterdayReview.doBetter ? `<div class="row"><div class="body">${esc(b.yesterdayReview.doBetter)}</div>${tag("do better", "warn")}</div>` : "") +
+      "</div>");
+  }
+
+  if ((b.lessons || []).length) {
+    parts.push(section("Standing lessons", b.lessons.length, b.lessons.map((l) => `
+      <div class="row"><div class="body">${esc(l.lesson)}<div class="meta">${esc(l.date)} — every worker is told this</div></div></div>`).join("")));
+  }
+
   parts.push(section("Waiting on you", b.waiting.length, b.waiting.map((w) => `
     <div class="row">
       <div class="body"><span class="key">${esc(w.key)}</span> ${esc(w.title)}

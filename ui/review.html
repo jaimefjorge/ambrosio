@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ambrosio — how did today go?</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f6f3; --panel: #fff; --line: #e4e2dc; --ink: #1a1a18; --dim: #6b6b64;
+    --gold: #b8892b; --green: #1f7a4d; --red: #b02b2b;
+    --dusk: linear-gradient(180deg, #f0e7f2 0%, #f7f6f3 60%);
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14140f; --panel: #1c1c18; --line: #2e2e28; --ink: #eceae2; --dim: #918f84;
+      --gold: #e2ad35; --green: #5fc38a; --red: #e5706b; --dusk: linear-gradient(180deg, #1e1a26 0%, #14140f 60%);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.6 var(--mono); }
+  .dusk { background: var(--dusk); padding: 44px 20px 30px; }
+  .wrap { max-width: 720px; margin-inline: auto; }
+  .hello { display: flex; align-items: center; gap: 20px; }
+  #review-canvas { image-rendering: pixelated; width: 144px; height: 90px; flex: none; }
+  h1 { font-size: 24px; margin: 0 0 4px; font-weight: 600; }
+  .sub { color: var(--dim); font-size: 13px; }
+  main { padding: 8px 20px 60px; }
+  label { display: block; font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+          color: var(--dim); font-weight: 600; margin: 26px 0 8px; }
+  textarea {
+    width: 100%; min-height: 96px; resize: vertical; font: inherit; font-size: 14px;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; padding: 12px 14px;
+  }
+  textarea:focus { outline: none; border-color: var(--gold); }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 7px; }
+  .bar { display: flex; align-items: center; gap: 14px; margin-top: 26px; }
+  button { font: inherit; font-size: 13px; padding: 9px 20px; border-radius: 5px; cursor: pointer;
+           border: 1px solid var(--gold); background: var(--gold); color: #1a1a18; font-weight: 600; }
+  button[disabled] { opacity: .4; cursor: default; }
+  #said { font-size: 12px; color: var(--green); }
+  #said.bad { color: var(--red); }
+  .prior { margin-top: 34px; border-top: 1px solid var(--line); padding-top: 18px; }
+  .prior h2 { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .prior div { color: var(--dim); font-size: 13px; margin-top: 6px; }
+  a { color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="dusk"><div class="wrap hello">
+  <canvas id="review-canvas" width="48" height="30"></canvas>
+  <div>
+    <h1>That is the day, sir.</h1>
+    <div class="sub" id="date"></div>
+  </div>
+</div></div>
+
+<main class="wrap">
+  <label for="well">What went well today?</label>
+  <textarea id="well" placeholder="What worked. Worth keeping."></textarea>
+
+  <label for="better">What should we do differently tomorrow?</label>
+  <textarea id="better" placeholder="Every worker is told this before it starts, so be specific."></textarea>
+  <div class="hint">This one is not a note to yourself — it goes into tomorrow's briefing and into every worker's instructions.</div>
+
+  <div class="bar">
+    <button id="save">Save the day</button>
+    <span id="said"></span>
+    <a href="/" style="margin-left:auto">the fleet →</a>
+  </div>
+
+  <div class="prior" id="prior" hidden><h2>Standing lessons</h2><div id="prior-list"></div></div>
+</main>
+
+<script src="/butler.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const butler = createButler($("review-canvas"), { screen: $("review-canvas"), onMood: () => {} });
+butler.setMood("attention", "");
+$("date").textContent = new Date().toDateString();
+
+function renderPrior(lessons) {
+  if (!lessons?.length) return;
+  $("prior").hidden = false;
+  $("prior-list").innerHTML = lessons.map((l) => `<div>· ${esc(l.lesson)} <span style="opacity:.6">(${esc(l.date)})</span></div>`).join("");
+}
+
+$("save").addEventListener("click", async () => {
+  $("save").disabled = true;
+  $("said").className = "";
+  $("said").textContent = "…";
+  try {
+    const r = await fetch("/api/review", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-ambrosio": "1" },
+      body: JSON.stringify({ wentWell: $("well").value, doBetter: $("better").value }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || "failed");
+    $("said").textContent = "Thank you, sir. Tomorrow will know.";
+    butler.setMood("idle", "");
+    load();
+  } catch (e) {
+    $("said").className = "bad";
+    $("said").textContent = "! " + e.message;
+  } finally {
+    $("save").disabled = false;
+  }
+});
+
+async function load() {
+  try {
+    const d = await (await fetch("/api/review")).json();
+    if (d.today) { $("well").value = d.today.wentWell || ""; $("better").value = d.today.doBetter || ""; }
+    renderPrior(d.lessons);
+  } catch {
+    // A review can still be written without its history.
+  }
+}
+load();
+</script>
+</body>
+</html>

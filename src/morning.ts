@@ -4,6 +4,7 @@ import { collectBoard, type Board } from "./board.ts";
 import { assignKeys } from "./digest.ts";
 import * as journal from "./journal.ts";
 import * as queue from "./queue.ts";
+import { recentLessons, readReview, type Lesson } from "./review.ts";
 
 /**
  * Whether a source could be read at all, and why not when it could not.
@@ -28,6 +29,27 @@ export type PullRequest = {
 
 export type Carryover = { at: string; kind: string; text: string };
 
+/** What actually happened since yesterday morning, including the night shift. */
+export type Recap = { accepted: string[]; dispatched: string[]; night: string[] };
+
+const ACCEPTED = /^- (\d\d:\d\d) (\S+) accepted and closed(.*)$/;
+const DISPATCHED = /^- (\d\d:\d\d) dispatched \S+ (\S+) \((.*?)\) as session/;
+const NIGHT = /^- (\d\d:\d\d) after hours: (.*)$/;
+
+export function recapFrom(text: string): Recap {
+  const recap: Recap = { accepted: [], dispatched: [], night: [] };
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    let m = ACCEPTED.exec(line);
+    if (m) { recap.accepted.push(`${m[2]}${m[3]}`.trim()); continue; }
+    m = DISPATCHED.exec(line);
+    if (m) { recap.dispatched.push(`${m[2]} — ${m[3]}`); continue; }
+    m = NIGHT.exec(line);
+    if (m) recap.night.push(m[2]);
+  }
+  return recap;
+}
+
 export type BriefTicket = { id: string; repo: string; title: string; status: string; priority: number };
 
 export type Scope = { repos?: string[]; mission?: string };
@@ -37,6 +59,9 @@ export type MorningBrief = {
   greeting: string;
   mission: string;
   repos: string[];
+  recap: Recap;
+  lessons: Lesson[];
+  yesterdayReview: { wentWell: string; doBetter: string } | null;
   capacity: { used: number; limit: number; free: number };
   carryover: Carryover[];
   waiting: { key: string; kind: "question" | "plan" | "accept"; id: string; repo: string; title: string }[];
@@ -54,6 +79,8 @@ export type MorningDeps = {
   linear: (cfg: AmbrosioConfig) => { issues: MorningBrief["linear"]; source: SourceState };
   verity: (cfg: AmbrosioConfig) => MorningBrief["verity"];
   journal: (cfg: AmbrosioConfig) => string;
+  lessons: (cfg: AmbrosioConfig) => Lesson[];
+  yesterdayReview: (cfg: AmbrosioConfig) => { wentWell: string; doBetter: string } | null;
   now: () => Date;
 };
 
@@ -140,6 +167,9 @@ export function buildBrief(cfg: AmbrosioConfig, deps: MorningDeps, scope: Scope 
     greeting: greeting(now),
     mission: scope.mission ?? "",
     repos: scope.repos ?? [],
+    recap: recapFrom(text),
+    lessons: safely("Lessons", [] as Lesson[], () => deps.lessons(cfg), sources),
+    yesterdayReview: safely("Yesterday's review", null as any, () => deps.yesterdayReview(cfg), sources),
     capacity: { used: busy, limit: cfg.wipLimit, free: Math.max(0, cfg.wipLimit - busy) },
     carryover: carryoverFrom(text),
     waiting: waiting.filter((w) => inScope(w.repo)),
@@ -239,6 +269,13 @@ export function realMorningDeps(): MorningDeps {
       const y = new Date();
       y.setDate(y.getDate() - 1);
       return `${journal.read(cfg.homeDir, journal.todayKey(y))}\n${journal.read(cfg.homeDir)}`;
+    },
+    lessons: (cfg) => recentLessons(cfg, 5),
+    yesterdayReview: (cfg) => {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      const r = readReview(cfg, y);
+      return r ? { wentWell: r.wentWell, doBetter: r.doBetter } : null;
     },
     now: () => new Date(),
   };
