@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, ConfigError, hhmm, withinHours, repoByName } from "../src/config.ts";
+import { loadConfig, ConfigError, hhmm, withinHours, repoByName, expandHome } from "../src/config.ts";
+import { homedir } from "node:os";
 
 function writeConfig(extra: Record<string, unknown> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "amb-cfg-"));
@@ -56,4 +57,25 @@ test("hhmm and withinHours", () => {
   expect(withinHours(cfg, new Date(2026, 8, 7, 11, 0))).toBe(true);
   expect(withinHours(cfg, new Date(2026, 8, 7, 22, 0))).toBe(false);
   expect(withinHours(cfg, new Date(2026, 8, 7, 6, 0))).toBe(false);
+});
+
+test("a missing repo path gives an actionable error, and lenient mode reports instead of throwing", () => {
+  const { dir } = writeConfig();
+  const file = join(dir, "missing.json");
+  writeFileSync(file, JSON.stringify({ repos: [{ name: "x", path: "/nope/nope", prefix: "x" }] }));
+
+  expect(() => loadConfig(file)).toThrow(/do not exist on this machine/);
+  expect(() => loadConfig(file)).toThrow(/bin\/ambrosio setup/);
+
+  const lenient = loadConfig(file, { lenient: true });
+  expect(lenient.missingRepos.map((r) => r.name)).toEqual(["x"]);
+  expect(lenient.repos).toHaveLength(1);
+});
+
+test("expandHome resolves ~ so configs are portable", () => {
+  const { file } = writeConfig();
+  const cfg = loadConfig(file);
+  expect(cfg.missingRepos).toEqual([]);
+  expect(expandHome("~/x")).toBe(join(homedir(), "x"));
+  expect(expandHome("/abs/x")).toBe("/abs/x");
 });

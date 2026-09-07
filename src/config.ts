@@ -14,6 +14,8 @@ export type AmbrosioConfig = {
   urgentPatterns: string[];
   homeDir: string;
   rootDir: string;
+  /** Configured repos whose path is absent on this machine. Empty unless loaded leniently. */
+  missingRepos: RepoConfig[];
 };
 
 export class ConfigError extends Error {}
@@ -36,7 +38,12 @@ export function homeDir(): string {
   return process.env.AMBROSIO_HOME ?? join(homedir(), ".ambrosio");
 }
 
-export function loadConfig(path?: string): AmbrosioConfig {
+export type LoadOptions = {
+  /** Report missing repos on the result instead of throwing. Used by `setup`, which exists to fix them. */
+  lenient?: boolean;
+};
+
+export function loadConfig(path?: string, opts: LoadOptions = {}): AmbrosioConfig {
   const root = rootDir();
   const file = path ?? process.env.AMBROSIO_CONFIG ?? join(root, "ambrosio.config.json");
   if (!existsSync(file)) throw new ConfigError(`config not found: ${file}`);
@@ -59,8 +66,12 @@ export function loadConfig(path?: string): AmbrosioConfig {
   });
 
   const missing = repos.filter((r) => !existsSync(r.path));
-  if (missing.length > 0 && !process.env.AMBROSIO_SKIP_REPO_CHECK) {
-    throw new ConfigError(`repo path does not exist: ${missing.map((r) => `${r.name} (${r.path})`).join(", ")}`);
+  if (missing.length > 0 && !opts.lenient && !process.env.AMBROSIO_SKIP_REPO_CHECK) {
+    throw new ConfigError(
+      `these repos in ambrosio.config.json do not exist on this machine:\n` +
+        missing.map((r) => `  ${r.name} -> ${r.path}`).join("\n") +
+        `\nClone them there, or edit ambrosio.config.json to match this machine, then run: bin/ambrosio setup`,
+    );
   }
 
   return {
@@ -72,6 +83,7 @@ export function loadConfig(path?: string): AmbrosioConfig {
     urgentPatterns: raw.urgentPatterns ?? [],
     homeDir: homeDir(),
     rootDir: root,
+    missingRepos: missing,
   };
 }
 

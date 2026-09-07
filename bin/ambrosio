@@ -88,8 +88,19 @@ switch (cmd) {
       try { chmodSync(join(hooks, h), 0o755); } catch { /* already executable */ }
     }
 
-    const c = cfg();
+    // Load leniently: a fresh machine will not have the repos cloned yet, and
+    // setup is exactly the command that should tell you so instead of dying.
+    let c: AmbrosioConfig;
+    try {
+      c = loadConfig(undefined, { lenient: true });
+    } catch (e) {
+      die((e as Error).message);
+    }
     const problems: string[] = [];
+    const missing = new Set(c.missingRepos.map((r) => r.name));
+    for (const r of c.missingRepos) {
+      problems.push(`repo not found on this machine: ${r.name} -> ${r.path} (clone it, or edit ambrosio.config.json)`);
+    }
     for (const tool of ["bd", "claude", "jq", "gh"]) {
       if (spawnSync("which", [tool], { encoding: "utf8" }).status !== 0) problems.push(`missing tool: ${tool}`);
     }
@@ -99,6 +110,10 @@ switch (cmd) {
     }
     const repoLines: string[] = [];
     for (const repo of c.repos) {
+      if (missing.has(repo.name)) {
+        repoLines.push(`  ${repo.name}: skipped, path missing`);
+        continue;
+      }
       try {
         const r = tracker.initRepo(repo);
         repoLines.push(`  ${repo.name}: ${r.initialized ? "beads initialized" : "beads already present"} (prefix ${repo.prefix})`);
