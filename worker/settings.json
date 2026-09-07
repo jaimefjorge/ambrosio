@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "/Users/jaime/Workspace/ambrosio/worker/hooks/ask-guard.sh", "timeout": 20 }] },
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "/Users/jaime/Workspace/ambrosio/worker/hooks/bash-guard.sh", "timeout": 20 }] }
+    ],
+    "PermissionRequest": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "/Users/jaime/Workspace/ambrosio/worker/hooks/permission-guard.sh", "timeout": 20 }] }
+    ]
+  }
+}
