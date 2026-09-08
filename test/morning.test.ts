@@ -188,3 +188,37 @@ describe("what happened since yesterday morning", () => {
     expect(b.yesterdayReview!.wentWell).toBe("two landed");
   });
 });
+
+test("collectors only read the repos in the day's scope", () => {
+  const cfg = {
+    repos: [
+      { name: "a", path: "/tmp/a", prefix: "a" },
+      { name: "b", path: "/tmp/b", prefix: "b" },
+      { name: "c", path: "/tmp/c", prefix: "c" },
+    ],
+    wipLimit: 3, turnCap: 150,
+    hours: { planning: "09:00", digestFrom: "09:00", digestTo: "14:00", wrapUp: "15:00" },
+    imessage: { handle: "" }, urgentPatterns: [], homeDir: "/tmp/h", rootDir: "/tmp/r", missingRepos: [],
+  } as any;
+
+  const prsAsked: string[][] = [];
+  const verityAsked: string[][] = [];
+  const deps = {
+    board: () => ({ ready: [], all: [], agents: [], questions: [], plans: [], accept: [], working: [], blocked: [], anomalies: [], needsInput: [], now: new Date() }) as any,
+    prs: (_c: any, repos: any[]) => { prsAsked.push(repos.map((r) => r.name)); return []; },
+    linear: () => ({ issues: [], source: { name: "Linear", ok: true, detail: "read" } }),
+    verity: (_c: any, repos: any[]) => { verityAsked.push(repos.map((r) => r.name)); return []; },
+    journal: () => "",
+    lessons: () => [],
+    yesterdayReview: () => null,
+    now: () => new Date(2026, 8, 7, 9, 0),
+  } as any;
+
+  buildBrief(cfg, deps, { repos: ["b"] });
+  expect(prsAsked[0]).toEqual(["b"]);
+  expect(verityAsked[0]).toEqual(["b"]);
+
+  // No choice means the whole world, which is the documented behaviour.
+  buildBrief(cfg, deps, {});
+  expect(prsAsked[1]).toEqual(["a", "b", "c"]);
+});

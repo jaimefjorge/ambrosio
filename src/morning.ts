@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { standing } from "./standing.ts";
-import type { AmbrosioConfig } from "./config.ts";
+import type { AmbrosioConfig, RepoConfig } from "./config.ts";
 import { collectBoard, type Board } from "./board.ts";
 import { assignKeys } from "./digest.ts";
 import * as journal from "./journal.ts";
@@ -82,9 +82,10 @@ export type MorningBrief = {
 export type MorningDeps = {
   ledgerDeps?: LedgerDeps;
   board: (cfg: AmbrosioConfig) => Board;
-  prs: (cfg: AmbrosioConfig) => PullRequest[];
+  /** `repos` is already narrowed to the day's scope: collectors must not read outside it. */
+  prs: (cfg: AmbrosioConfig, repos: RepoConfig[]) => PullRequest[];
   linear: (cfg: AmbrosioConfig) => { issues: MorningBrief["linear"]; source: SourceState };
-  verity: (cfg: AmbrosioConfig) => MorningBrief["verity"];
+  verity: (cfg: AmbrosioConfig, repos: RepoConfig[]) => MorningBrief["verity"];
   journal: (cfg: AmbrosioConfig) => string;
   lessons: (cfg: AmbrosioConfig) => Lesson[];
   yesterdayReview: (cfg: AmbrosioConfig) => { wentWell: string; doBetter: string } | null;
@@ -161,12 +162,15 @@ export function buildBrief(cfg: AmbrosioConfig, deps: MorningDeps, scope: Scope 
   const busy = (board?.agents ?? []).filter((a) => a.kind === "background" && (a.state === "working" || a.state === "blocked")).length;
   const asTicket = (t: any): BriefTicket => ({ id: t.id, repo: t.repo ?? "", title: t.title, status: t.status, priority: t.priority });
 
-  const prs = safely("Pull requests", [] as PullRequest[], () => deps.prs(cfg), sources);
+  // Only read the repos in scope. Reading all of them and filtering afterwards
+  // cost the same whether one project was chosen or three.
+  const scoped = only ? cfg.repos.filter((r) => only.has(r.name)) : cfg.repos;
+  const prs = safely("Pull requests", [] as PullRequest[], () => deps.prs(cfg, scoped), sources);
   const linear = safely("Linear", { issues: [], source: { name: "Linear", ok: false, detail: "not read" } }, () => deps.linear(cfg), sources);
   // The Linear collector reports its own state; keep that, not the wrapper's.
   const i = sources.findIndex((s) => s.name === "Linear");
   if (i >= 0 && linear.source) sources[i] = linear.source;
-  const verity = safely("Verity", [] as MorningBrief["verity"], () => deps.verity(cfg), sources);
+  const verity = safely("Verity", [] as MorningBrief["verity"], () => deps.verity(cfg, scoped), sources);
   const text = safely("Journal", "", () => deps.journal(cfg), sources);
 
   return {
@@ -209,9 +213,9 @@ function checksOf(rollup: any[]): PullRequest["checks"] {
   return "passing";
 }
 
-export function collectPrs(cfg: AmbrosioConfig): PullRequest[] {
+export function collectPrs(cfg: AmbrosioConfig, repos: RepoConfig[] = cfg.repos): PullRequest[] {
   const out: PullRequest[] = [];
-  for (const repo of cfg.repos) {
+  for (const repo of repos) {
     const slug = run("gh", ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], repo.path).trim();
     const raw = JSON.parse(run("gh", [
       "pr", "list", "-R", slug, "--author", "@me", "--limit", "30",
@@ -257,8 +261,8 @@ export function collectLinear(cfg: AmbrosioConfig): { issues: MorningBrief["line
   }
 }
 
-export function collectVerity(cfg: AmbrosioConfig): MorningBrief["verity"] {
-  return cfg.repos.map((repo) => {
+export function collectVerity(cfg: AmbrosioConfig, repos: RepoConfig[] = cfg.repos): MorningBrief["verity"] {
+  return repos.map((repo) => {
     try {
       const d = JSON.parse(run("verity", ["status", "--json", "--history", "--limit", "5"], repo.path, 25_000));
       return { repo: repo.name, loggedIn: d.auth?.logged_in === true, runs: (d.runs ?? []).length };

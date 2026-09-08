@@ -242,11 +242,17 @@
   .ev.tool_result .v { color: var(--dim); }
   .ev.err .k, .ev.err .v { color: var(--failed); }
   .ev.thinking .v { color: var(--dim); font-style: italic; }
+  #to-morning {
+    color: var(--gold); text-decoration: none; font-size: 13px; padding: 5px 12px;
+    border: 1px solid var(--line); border-radius: 5px; white-space: nowrap;
+  }
+  #to-morning:hover { border-color: var(--gold); }
 </style>
 </head>
 <body>
 <header>
   <h1>Ambrosio</h1>
+  <a href="/morning" id="to-morning">the morning &rarr;</a>
   <div class="stats" id="stats"></div>
   <div id="ask-wrap">
     <input id="ask" placeholder="ask Ambrosio about the work…">

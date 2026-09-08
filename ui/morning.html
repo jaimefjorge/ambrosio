@@ -119,13 +119,14 @@
     <textarea id="mission" placeholder="And what is today for? (optional — e.g. &quot;ship the release gate so 0.31.4 can be announced&quot;)"></textarea>
     <div class="hint" id="focus-hint">Pick the projects you want in front of you. Everything else stays out of the way.</div>
   </section>
-  <div id="brief"></div>
+  <div id="brief"><div class="panel"><div class="quiet">One moment, sir…</div></div></div>
 </main>
 
 <div id="bar"><div class="wrap">
   <button id="set" hidden>Set the day</button>
   <button id="begin" disabled hidden>Begin the day</button>
   <button class="ghost" id="clear" hidden>Clear</button>
+  <button class="ghost" id="change-day" hidden>Change projects</button>
   <span id="count">nothing chosen</span>
   <a href="/" style="margin-left:auto;font-size:12px;color:var(--dim)">the fleet →</a>
   <span id="said"></span>
@@ -165,6 +166,7 @@ function showFocus() {
   $("set").hidden = false;
   $("begin").hidden = true;
   $("clear").hidden = true;
+  $("change-day").hidden = true;
   butler.setMood("idle", "");
   updateBar();
 }
@@ -310,6 +312,7 @@ function render(b) {
   if (edit) edit.addEventListener("click", showFocus);
   $("begin").hidden = false;
   $("clear").hidden = false;
+  $("change-day").hidden = false;
   $("set").hidden = true;
   butler.setMood(b.waiting.length ? "attention" : "idle", "");
   updateBar();
@@ -340,6 +343,7 @@ $("brief").addEventListener("click", (e) => {
 });
 
 $("clear").addEventListener("click", () => { chosen.clear(); render(brief); });
+$("change-day").addEventListener("click", showFocus);
 
 $("begin").addEventListener("click", async () => {
   $("begin").disabled = true;
@@ -379,6 +383,7 @@ async function start() {
       $("mission").value = d.focus.mission ?? "";
       step = "brief";
       $("focus").hidden = true;
+      $("change-day").hidden = false;
       renderProjects(d.projects);
       load();
       return;
@@ -391,14 +396,40 @@ async function start() {
 }
 
 async function load() {
+  // The brief shells out to gh and verity per repo, so it is slow enough that a
+  // silent spinner reads as a hang. Say what is happening, put a ceiling on it,
+  // and always leave a way back to the chooser.
+  const started = Date.now();
+  const say = (msg, withActions) => {
+    $("brief").innerHTML = `<div class="panel"><div class="quiet">${esc(msg)}</div>` +
+      (withActions ? `<div style="margin-top:12px;display:flex;gap:10px">
+         <button id="retry">Try again</button>
+         <button class="ghost" id="pick-again">Choose projects</button>
+       </div>` : "") + `</div>`;
+    if (withActions) {
+      $("retry").addEventListener("click", load);
+      $("pick-again").addEventListener("click", showFocus);
+    }
+  };
+
+  say("Gathering the morning, sir…", false);
+  const tick = setInterval(() => {
+    const s = Math.round((Date.now() - started) / 1000);
+    if (s >= 3) say(`Gathering the morning, sir… (${s}s — reading pull requests and Verity)`, false);
+  }, 1000);
+
   try {
-    $("brief").innerHTML = '<div class="panel"><div class="quiet">Gathering the morning, sir…</div></div>';
-    const r = await fetch("/api/morning");
+    const r = await fetch("/api/morning", { signal: AbortSignal.timeout(60000) });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
+    clearInterval(tick);
     render(d);
   } catch (e) {
-    $("brief").innerHTML = `<div class="panel"><div class="quiet">Could not read the brief: ${esc(e.message)}</div></div>`;
+    clearInterval(tick);
+    const msg = e.name === "TimeoutError" || e.name === "AbortError"
+      ? "The brief took longer than a minute. That usually means gh or verity is hanging on a repo."
+      : `Could not read the brief: ${e.message}`;
+    say(msg, true);
   }
 }
 $("mission").addEventListener("input", updateBar);
