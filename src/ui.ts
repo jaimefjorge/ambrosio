@@ -21,6 +21,7 @@ import * as timeline from "./timeline.ts";
 import type { TimelineEvent } from "./timeline.ts";
 import { readBrief, type Brief } from "./handover.ts";
 import { missionMap } from "./mission.ts";
+import { beginDay } from "./begin.ts";
 import { repoByName } from "./config.ts";
 import { readDialog, standing, retire, type Entry } from "./standing.ts";
 import { say } from "./dialog.ts";
@@ -32,7 +33,7 @@ import { realDeps, routeReply } from "./watch.ts";
  * request but keeps its routes in memory, so an old server can otherwise serve
  * a new page and fail in ways that look like missing data.
  */
-export const UI_VERSION = "14";
+export const UI_VERSION = "15";
 
 /** How much of the thread the page shows; the file keeps all of it. */
 const DIALOG_TAIL = 40;
@@ -345,6 +346,17 @@ export function serve(cfg: AmbrosioConfig, port: number): { port: number; stop: 
           return Response.json({ ...brief, focusSet: focus !== null, version: UI_VERSION });
         } catch (e) {
           return Response.json({ error: (e as Error).message }, { status: 500 });
+        }
+      }
+
+      // Begin the day: always allowed. Lifts a pause, records the start,
+      // dispatches what was chosen, leaves the queue to the loop.
+      if (url.pathname === "/api/begin" && req.method === "POST") {
+        try {
+          const { tickets } = (await req.json().catch(() => ({}))) as { tickets?: { repo: string; ticket: string }[] };
+          return Response.json({ ok: true, ...beginDay(cfg, tickets ?? []) });
+        } catch (e) {
+          return Response.json({ error: (e as Error).message }, { status: 400 });
         }
       }
 

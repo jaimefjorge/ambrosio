@@ -148,3 +148,18 @@ describe("starting the day by knowing yesterday", () => {
     expect(withRecap({})).not.toContain("Since yesterday");
   });
 });
+
+// --- The morning must always be able to begin ------------------------------
+// 2026-09-08: Begin was disabled until tickets were chosen. Choosing is
+// optional; the loop dispatches the queue in order when nothing is chosen.
+
+test("Begin the day is available with nothing chosen, and says what will happen", () => {
+  const m = mount();
+  m.api.render({
+    date: "2026-09-08", greeting: "", mission: "", repos: [], recap: { accepted: [], dispatched: [], night: [] }, lessons: [], yesterdayReview: null,
+    capacity: { used: 0, limit: 3, free: 3 }, instructions: [], ledger: null, carryover: [], waiting: [], ready: [], inFlight: [], prs: [], linear: [], verity: [], sources: [],
+  } as any);
+  expect(m.nodes.begin.hidden).toBe(false);
+  expect(m.nodes.begin.disabled).toBe(false);
+  expect(m.html("count")).toContain("Ambrosio dispatches the queue in order");
+});

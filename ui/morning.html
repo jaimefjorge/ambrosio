@@ -216,6 +216,7 @@ function section(title, n, inner) {
 }
 
 function render(b) {
+  step = "brief";   // a rendered brief is the brief step, whichever way we got here
   brief = b;
   $("greeting").textContent = b.greeting;
   $("date").textContent = new Date(b.date).toDateString();
@@ -327,9 +328,11 @@ function updateBar() {
   }
   const free = brief ? brief.capacity.free : 0;
   const n = chosen.size;
-  $("count").textContent = n === 0 ? "nothing chosen"
+  // Choosing is optional. With nothing chosen the loop dispatches the queue in
+  // order — defects that block a review first, then priority.
+  $("count").textContent = n === 0 ? "nothing chosen — Ambrosio dispatches the queue in order"
     : `${n} chosen${n > free ? ` — only ${free} slot${free === 1 ? "" : "s"} free, the rest will queue` : ""}`;
-  $("begin").disabled = n === 0;
+  $("begin").disabled = false;
   $("begin").textContent = n === 0 ? "Begin the day" : `Begin the day — dispatch ${n}`;
 }
 
@@ -351,7 +354,9 @@ $("begin").addEventListener("click", async () => {
   $("said").textContent = "dispatching…";
   butler.setMood("busy", "");
   try {
-    const r = await fetch("/api/dispatch", {
+    // /api/begin lifts a pause, records the start, dispatches what was chosen
+    // and leaves the rest to the loop. It never refuses to begin.
+    const r = await fetch("/api/begin", {
       method: "POST",
       headers: { "content-type": "application/json", "x-ambrosio": "1" },
       body: JSON.stringify({ tickets: [...chosen].map((k) => ({ repo: k.split("/")[0], ticket: k.slice(k.indexOf("/") + 1) })) }),
@@ -359,10 +364,14 @@ $("begin").addEventListener("click", async () => {
     const d = await r.json();
     if (!r.ok || d.error) throw new Error(d.error || "failed");
     const ok = d.dispatched.length;
-    $("said").textContent = ok
-      ? `${ok} dispatched. ${d.refused.length ? d.refused.length + " held back." : "Have a good day, sir."}`
-      : "None dispatched.";
-    if (d.refused.length) $("said").textContent += " " + d.refused.map((x) => `${x.ticket}: ${x.why}`).join("; ");
+    const bits = [
+      "The day has begun.",
+      ok ? `${ok} dispatched.` : "",
+      d.queued ? `${d.queued} in the queue — Ambrosio takes it from here.` : (ok ? "" : "Nothing in the queue yet."),
+      d.resumed ? "(Pause lifted.)" : "",
+    ].filter(Boolean);
+    $("said").textContent = bits.join(" ");
+    if (d.refused.length) $("said").textContent += " Held back: " + d.refused.map((x) => `${x.ticket}: ${x.why}`).join("; ");
     chosen.clear();
     load();
   } catch (e) {
