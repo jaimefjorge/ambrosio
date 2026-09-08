@@ -373,7 +373,11 @@ $("begin").addEventListener("click", async () => {
     $("said").textContent = bits.join(" ");
     if (d.refused.length) $("said").textContent += " Held back: " + d.refused.map((x) => `${x.ticket}: ${x.why}`).join("; ");
     chosen.clear();
-    load();
+    // The day has begun; the fleet is where it happens now. Do not throw him
+    // back into a half-minute reload of the brief he has just read.
+    $("brief").innerHTML = `<div class="panel"><div class="quiet">${esc($("said").textContent)}</div>
+      <div style="margin-top:12px"><a href="/" id="go-fleet">Go to the fleet →</a> <span class="quiet" style="margin-left:10px">(taking you there in a moment)</span></div></div>`;
+    setTimeout(() => { location.href = "/"; }, 2500);
   } catch (e) {
     $("said").className = "bad";
     $("said").textContent = "! " + e.message;

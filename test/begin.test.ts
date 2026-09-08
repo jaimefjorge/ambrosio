@@ -18,7 +18,8 @@ function deps(over: Partial<BeginDeps> = {}) {
   const log: string[] = [];
   const d: BeginDeps = {
     openCount: () => 4,
-    readyCount: () => 2,
+    ready: () => [{ repo: "core", ticket: "q-1" }, { repo: "core", ticket: "q-2" }],
+    freeSlots: () => 0,
     dispatch: (_c, repo, ticket) => { log.push(`dispatch:${repo}/${ticket}`); return { id: "j" }; },
     journal: (_c, line) => log.push(`journal:${line}`),
     ...over,
@@ -35,7 +36,7 @@ describe("beginning the day", () => {
     expect(isPaused(c.homeDir)).toBe(false);
     expect(r.resumed).toBe(true);
     expect(r.open).toBe(4);
-    expect(r.queued).toBe(2);
+    expect(r.queued).toBe(2);        // no free slots in this fixture, so nothing started
     expect(r.dispatched).toEqual([]);
     expect(existsSync(join(c.homeDir, "days"))).toBe(true);
     expect(readdirSync(join(c.homeDir, "days"))).toHaveLength(1);
@@ -61,4 +62,23 @@ describe("beginning the day", () => {
     expect(b.resumed).toBe(false);
     expect(readdirSync(join(c.homeDir, "days"))).toHaveLength(1);
   });
+});
+
+test("with nothing chosen, the queue is dispatched in order up to the free slots — that is what 'takes it from here' means", () => {
+  const c = cfg();
+  const { d, log } = deps({
+    ready: () => [{ repo: "core", ticket: "c-fix" }, { repo: "core", ticket: "c-new" }, { repo: "core", ticket: "c-later" }],
+    freeSlots: () => 2,
+  });
+  const r = beginDay(c, [], d);
+  expect(r.dispatched.map((x) => x.ticket)).toEqual(["c-fix", "c-new"]);
+  expect(r.queued).toBe(1);
+  expect(log.filter((l) => l.startsWith("dispatch:"))).toHaveLength(2);
+});
+
+test("chosen tickets are not topped up from the queue: what he picked is the day's start", () => {
+  const c = cfg();
+  const { d } = deps({ ready: () => [{ repo: "core", ticket: "c-x" }, { repo: "core", ticket: "c-y" }], freeSlots: () => 3 });
+  const r = beginDay(c, [{ repo: "core", ticket: "c-x" }], d);
+  expect(r.dispatched.map((x) => x.ticket)).toEqual(["c-x"]);
 });

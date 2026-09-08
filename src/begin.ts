@@ -14,7 +14,9 @@ import * as journal from "./journal.ts";
  */
 export type BeginDeps = {
   openCount: (cfg: AmbrosioConfig) => number;
-  readyCount: (cfg: AmbrosioConfig) => number;
+  /** The queue, already in dispatch order (blocking defects first, then priority). */
+  ready: (cfg: AmbrosioConfig) => { repo: string; ticket: string }[];
+  freeSlots: (cfg: AmbrosioConfig) => number;
   dispatch: (cfg: AmbrosioConfig, repo: string, ticket: string) => { id: string };
   journal: (cfg: AmbrosioConfig, line: string) => void;
 };
@@ -36,15 +38,22 @@ export function beginDay(cfg: AmbrosioConfig, tickets: { repo: string; ticket: s
 
   const dispatched: Begun["dispatched"] = [];
   const refused: Begun["refused"] = [];
-  for (const t of tickets) {
+  const start = (t: { repo: string; ticket: string }) => {
     try {
       dispatched.push({ ...t, id: deps.dispatch(cfg, t.repo, t.ticket).id });
     } catch (e) {
       refused.push({ ticket: t.ticket, why: (e as Error).message });
     }
-  }
+  };
+  // What he chose is the day's start. With nothing chosen, the queue is the
+  // day's start: in order, up to the free slots — "takes it from here" has to
+  // be true the moment he clicks, not at the next tick.
+  const queue = deps.ready(cfg);
+  if (tickets.length) tickets.forEach(start);
+  else for (const t of queue.slice(0, Math.max(0, deps.freeSlots(cfg)))) start(t);
 
-  const queued = Math.max(0, deps.readyCount(cfg) - dispatched.length);
+  const started = new Set(dispatched.map((d) => d.ticket));
+  const queued = queue.filter((t) => !started.has(t.ticket)).length;
   deps.journal(cfg, `day began: ${open} open, ${dispatched.length} dispatched by hand, ${queued} queued for the loop${resumed ? ", pause lifted" : ""}`);
   return { resumed, open, queued, dispatched, refused };
 }
@@ -52,7 +61,8 @@ export function beginDay(cfg: AmbrosioConfig, tickets: { repo: string; ticket: s
 export function realBeginDeps(): BeginDeps {
   return {
     openCount: (cfg) => collectBoard(cfg).all.filter((t) => !["closed", "deferred"].includes(t.status)).length,
-    readyCount: (cfg) => collectBoard(cfg).ready.length,
+    ready: (cfg) => collectBoard(cfg).ready.map((t) => ({ repo: t.repo ?? "", ticket: t.id })),
+    freeSlots: (cfg) => { const b = collectBoard(cfg); return Math.max(0, cfg.wipLimit - b.working.length); },
     dispatch: (cfg, repo, ticket) => dispatchTicket(cfg, repo, ticket),
     journal: (cfg, line) => journal.append(cfg.homeDir, line),
   };
